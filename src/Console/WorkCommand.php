@@ -62,6 +62,11 @@ final class WorkCommand extends Command
         $preloader->warm(is_array($extra) ? array_values(array_filter($extra, 'is_string')) : []);
         $mode = $database->boot($this->laravel);
 
+        $prepare = config('probe.prepare');
+        if (is_string($prepare) && trim($prepare) !== '') {
+            probe_execute_snippet($prepare);
+        }
+
         $handler = new RequestHandler(
             $this->laravel->make(SnippetRunner::class),
             new SessionStore($home.'/session.json'),

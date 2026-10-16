@@ -177,7 +177,8 @@ final class Pool
             return false;
         }
 
-        if (! is_file($socket)) {
+        // A Unix socket is not a regular file, so is_file() is always false.
+        if (! file_exists($socket)) {
             return false;
         }
 
@@ -275,7 +276,7 @@ final class Pool
             }
 
             $socket = $worker['socket'] ?? null;
-            if (is_string($socket) && $socket !== '' && is_file($socket)) {
+            if (is_string($socket) && $socket !== '' && file_exists($socket)) {
                 try {
                     $this->client->requestLine($socket, ['tool' => 'shutdown'], 1.0);
                 } catch (Throwable) {

@@ -18,6 +18,8 @@ final class StatsTest extends TestCase
 
     public function test_percentile_uses_the_nearest_rank(): void
     {
-        $this->assertSame(95, Stats::percentile([10, 20, 95, 100], 0.95));
+        // Index is ceil(p * n) - 1. Four samples at p95 land on the last value.
+        $this->assertSame(100, Stats::percentile([10, 20, 95, 100], 0.95));
+        $this->assertSame(20, Stats::percentile([10, 20, 95, 100], 0.50));
     }
 }

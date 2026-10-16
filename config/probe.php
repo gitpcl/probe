@@ -29,6 +29,13 @@ return [
     'migrate' => filter_var(env('PROBE_MIGRATE', true), FILTER_VALIDATE_BOOL),
 
     /*
+    | Optional PHP run once after the worker boots and migrations finish.
+    | It is outside the per-probe transaction, so schema created here stays
+    | for the life of the worker while later probe writes still roll back.
+    */
+    'prepare' => env('PROBE_PREPARE'),
+
+    /*
     | Wrap each probe in a transaction on the default connection and roll it back.
     */
     'isolate' => filter_var(env('PROBE_ISOLATE', true), FILTER_VALIDATE_BOOL),

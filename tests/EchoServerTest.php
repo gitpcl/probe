@@ -18,7 +18,7 @@ final class EchoServerTest extends TestCase
     {
         if (is_resource($this->process)) {
             $status = proc_get_status($this->process);
-            if (($status['running'] ?? false) === true && is_file($this->socket)) {
+            if (($status['running'] ?? false) === true && file_exists($this->socket)) {
                 try {
                     (new Client())->requestLine($this->socket, ['tool' => 'shutdown'], 1);
                 } catch (\Throwable) {
@@ -55,7 +55,7 @@ final class EchoServerTest extends TestCase
         stream_set_blocking($pipes[2], false);
 
         $deadline = microtime(true) + 5;
-        while (! is_file($this->socket) && microtime(true) < $deadline) {
+        while (! file_exists($this->socket) && microtime(true) < $deadline) {
             usleep(10_000);
         }
 

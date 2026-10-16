@@ -159,7 +159,7 @@ final class Dispatcher
             $process[] = $this->timeProcess($root, $script);
         }
 
-        $roundtrip = [];
+        $roundtripUs = [];
         for ($index = 0; $index < $samples; $index++) {
             $started = hrtime(true);
             $line = $this->pool->dispatch($root, [
@@ -170,7 +170,7 @@ final class Dispatcher
             if (! is_array($decoded) || ($decoded['status'] ?? null) !== 'passed') {
                 throw new RuntimeException('warm round trip failed: '.$line);
             }
-            $roundtrip[] = Stats::elapsedMs($started);
+            $roundtripUs[] = (int) round((hrtime(true) - $started) / 1_000);
         }
 
         $processMedian = Stats::median($process);
@@ -181,8 +181,8 @@ final class Dispatcher
             'process_median_ms' => $processMedian,
             'process_min_ms' => min($process),
             'process_p95_ms' => Stats::percentile($process, 0.95),
-            'roundtrip_median_ms' => Stats::median($roundtrip),
-            'roundtrip_min_ms' => min($roundtrip),
+            'roundtrip_median_ms' => round(Stats::median($roundtripUs) / 1000, 3),
+            'roundtrip_min_ms' => round(min($roundtripUs) / 1000, 3),
             'samples' => $samples,
             'target_ms' => Probe::WARM_TARGET_MS,
             'met_target' => $processMedian < Probe::WARM_TARGET_MS,

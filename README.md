@@ -124,7 +124,9 @@ Named connections configured by the host app stay available. A snippet that call
 
 Set `PROBE_DATABASE=host` to keep the application's default connection.
 
-SQLite commits some DDL immediately. Create tables in their own probe, then insert data in the next one if you need the rollback to cover the insert.
+`probe.prepare` is optional PHP run once at worker boot, after migrations and outside the per-probe transaction. Use it to create tables that should survive for the life of the worker.
+
+On the SQLite used here, `Schema::create` inside a probe rolls back with the transaction, so the next probe does not see that table. Put durable schema in `probe.prepare` or in migrations. Some DDL statements commit immediately on other SQLite builds, so do not rely on either outcome from inside a probe.
 
 ## Pest and PHPUnit
 
@@ -147,7 +149,13 @@ The command prints one JSON object:
 | `roundtrip_median_ms` | Socket round trip from an already running client |
 | `met_target` | `process_median_ms` is under 150 |
 
-Numbers from this package's Testbench fixture on PHP 8.3.6 (a small Laravel boot, not a full application skeleton) are filled in after measurement. Run the command in the target app for numbers that match that app. Cold boot grows with the app. The warm process time is dominated by PHP startup plus the socket round trip.
+Measured on this package's Testbench fixture (Laravel 12 application skeleton, PHP 8.3.6, `vendor/bin/probe --benchmark --samples=20`):
+
+```json
+{"status":"passed","cold_ms":87,"process_median_ms":22,"process_min_ms":21,"process_p95_ms":24,"roundtrip_median_ms":0.257,"roundtrip_min_ms":0.142,"samples":20,"target_ms":150,"met_target":true,"php":"8.3.6"}
+```
+
+`duration_ms` inside the worker rounded to 0 for `return 1;`. The warm target is the fresh PHP process against an already warm worker (`process_median_ms`), which was 22 ms here. Cold boot on this small app was 87 ms. A larger application spends more time booting the worker. Re-run the command in that app. The integer `duration_ms` field stays whole milliseconds so a green probe stays small.
 
 ## Configuration
 
@@ -157,6 +165,7 @@ Published to `config/probe.php`.
 | --- | --- | --- |
 | `database` | `sqlite_memory` | `sqlite_memory` or `host` |
 | `migrate` | `true` | Migrate the probe connection at worker boot |
+| `prepare` | `null` | PHP run once at boot, outside the per-probe transaction |
 | `isolate` | `true` | Roll back the default connection after each probe |
 | `workers` | `1` | Pool size |
 | `timeout_ms` | `5000` | Per-probe wall clock. `pcntl` alarms at one-second resolution |

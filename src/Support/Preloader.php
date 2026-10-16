@@ -26,7 +26,22 @@ final class Preloader
         }
 
         $compiled = 0;
+        $loaded = [];
+        foreach (get_included_files() as $included) {
+            $real = realpath($included);
+            if ($real !== false) {
+                $loaded[$real] = true;
+            }
+        }
+
         foreach ($this->files($extra) as $file) {
+            $real = realpath($file);
+            // Compiling a file that is already loaded redeclares its classes.
+            // The process already holds that bytecode; file_cache recorded it at include time.
+            if ($real !== false && isset($loaded[$real])) {
+                continue;
+            }
+
             if (is_file($file) && @opcache_compile_file($file)) {
                 $compiled++;
             }

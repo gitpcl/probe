@@ -64,13 +64,7 @@ final class WorkerPoolTest extends TestCase
     {
         $created = json_decode($this->pool->dispatch($this->root, [
             'tool' => 'probe',
-            'code' => <<<'PHP'
-Illuminate\Support\Facades\Schema::create('notes', function ($table) {
-    $table->increments('id');
-    $table->string('body');
-});
-return config('database.default');
-PHP,
+            'code' => 'return config(\'database.default\');',
         ], 15000), true, 512, JSON_THROW_ON_ERROR);
 
         $this->assertSame('passed', $created['status'], json_encode($created));
