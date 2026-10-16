@@ -1,0 +1,60 @@
+{
+    "name": "gitpcl/probe",
+    "description": "Agent-first Laravel testing runtime: warm PHP workers and compact JSON probes.",
+    "keywords": ["laravel", "testing", "probe", "phpunit", "pest", "agents"],
+    "homepage": "https://github.com/gitpcl/probe",
+    "license": "MIT",
+    "type": "library",
+    "support": {
+        "issues": "https://github.com/gitpcl/probe/issues",
+        "source": "https://github.com/gitpcl/probe"
+    },
+    "require": {
+        "php": "^8.2",
+        "ext-json": "*",
+        "illuminate/console": "^11.0 || ^12.0",
+        "illuminate/contracts": "^11.0 || ^12.0",
+        "illuminate/database": "^11.0 || ^12.0",
+        "illuminate/support": "^11.0 || ^12.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^9.0 || ^10.0",
+        "phpunit/phpunit": "^10.5 || ^11.0"
+    },
+    "suggest": {
+        "ext-pcntl": "Probe timeouts and worker signals use pcntl when it is loaded.",
+        "ext-posix": "Stale warm-worker detection uses posix when it is loaded.",
+        "ext-pdo_sqlite": "The default probe database is SQLite :memory:."
+    },
+    "autoload": {
+        "psr-4": {
+            "Probe\\": "src/"
+        },
+        "files": [
+            "src/Runner/execute_snippet.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Probe\\Tests\\": "tests/"
+        }
+    },
+    "bin": [
+        "bin/probe"
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Probe\\ProbeServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "test": "phpunit --colors=always"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true
+    }
+}

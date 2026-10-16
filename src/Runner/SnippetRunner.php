@@ -1,0 +1,142 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Probe\Runner;
+
+use ErrorException;
+use Probe\Result\Failure;
+use Probe\Result\ProbeResult;
+use Probe\Support\Stats;
+use Throwable;
+
+final class SnippetRunner
+{
+    public function __construct(
+        private readonly DatabaseGuard $database,
+        private readonly int $maxValueBytes = 1024,
+        private readonly int $defaultTimeoutMs = 5000,
+    ) {}
+
+    public function run(string $code, ?int $timeoutMs = null): ProbeResult
+    {
+        $timeoutMs ??= $this->defaultTimeoutMs;
+        $started = hrtime(true);
+        $level = ob_get_level();
+        ob_start();
+        $this->armTimeout($timeoutMs);
+        $previous = $this->pushErrorHandler();
+
+        try {
+            $normalized = $this->database->isolate(function () use ($code): array {
+                return $this->normalize(probe_execute_snippet($code));
+            });
+
+            return ProbeResult::passed(Stats::elapsedMs($started), $normalized[0], $normalized[1]);
+        } catch (Throwable $exception) {
+            return ProbeResult::failed(
+                Stats::elapsedMs($started),
+                Failure::fromThrowable($exception),
+            );
+        } finally {
+            $this->disarmTimeout();
+            if ($previous !== null) {
+                restore_error_handler();
+            }
+            while (ob_get_level() > $level) {
+                ob_end_clean();
+            }
+        }
+    }
+
+    /**
+     * @return array{0: mixed, 1: bool}
+     */
+    private function normalize(mixed $value): array
+    {
+        if ($value === null) {
+            return [null, false];
+        }
+
+        if (is_bool($value) || is_int($value)) {
+            return [$value, true];
+        }
+
+        if (is_float($value)) {
+            if (! is_finite($value)) {
+                return [['_type' => 'float'], true];
+            }
+
+            return [$value, true];
+        }
+
+        if (is_string($value)) {
+            if (strlen($value) > $this->maxValueBytes) {
+                return [[
+                    '_truncated' => true,
+                    'type' => 'string',
+                    'bytes' => strlen($value),
+                ], true];
+            }
+
+            return [$value, true];
+        }
+
+        try {
+            $json = json_encode(
+                $value,
+                JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+            );
+        } catch (Throwable) {
+            $type = is_object($value) ? $value::class : gettype($value);
+
+            return [['_type' => $type], true];
+        }
+
+        if (strlen($json) > $this->maxValueBytes) {
+            $type = is_object($value) ? $value::class : gettype($value);
+
+            return [[
+                '_truncated' => true,
+                'type' => $type,
+                'bytes' => strlen($json),
+            ], true];
+        }
+
+        return [json_decode($json, true), true];
+    }
+
+    private function pushErrorHandler(): bool
+    {
+        set_error_handler(static function (int $severity, string $message, string $file, int $line): bool {
+            $convert = E_WARNING | E_USER_WARNING | E_RECOVERABLE_ERROR | E_USER_ERROR;
+            if (($severity & $convert) === 0 || (error_reporting() & $severity) === 0) {
+                return false;
+            }
+
+            throw new ErrorException($message, 0, $severity, $file, $line);
+        });
+
+        return true;
+    }
+
+    private function armTimeout(int $timeoutMs): void
+    {
+        if (! function_exists('pcntl_async_signals') || ! function_exists('pcntl_signal') || ! function_exists('pcntl_alarm')) {
+            return;
+        }
+
+        pcntl_async_signals(true);
+        pcntl_signal(SIGALRM, static function (): void {
+            throw new ProbeTimeoutException('probe timed out');
+        });
+        pcntl_alarm(max(1, (int) ceil($timeoutMs / 1000)));
+    }
+
+    private function disarmTimeout(): void
+    {
+        if (function_exists('pcntl_alarm')) {
+            pcntl_alarm(0);
+        }
+    }
+}
