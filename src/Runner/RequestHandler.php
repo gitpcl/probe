@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Probe\Runner;
 
+use Probe\Phase\Toolbox;
 use Probe\Probe;
 use Probe\Result\Failure;
 use Probe\Result\JsonResultEncoder;
@@ -12,19 +13,10 @@ use Probe\Session\SessionStore;
 
 /**
  * Agent tools handled inside a warm worker.
- * probe, get_failures, and rerun_failed run here.
- * Later tools answer with status unsupported so the surface stays stable.
+ * PHP probes stay on the warm path. Later tools share the same JSON result.
  */
 final class RequestHandler
 {
-    private const LATER = [
-        'run_affected' => 2,
-        'probe_browser' => 2,
-        'mutate_check' => 3,
-        'property_check' => 3,
-        'formal_check' => 4,
-    ];
-
     private bool $stop = false;
 
     private int $probes = 0;
@@ -36,6 +28,7 @@ final class RequestHandler
         private readonly DatabaseGuard $database,
         private readonly int $maxCodeBytes = 100000,
         private readonly int $recycleAfter = 500,
+        private readonly ?Toolbox $toolbox = null,
     ) {}
 
     /**
@@ -54,7 +47,7 @@ final class RequestHandler
             'get_failures' => $this->getFailures($request),
             'rerun_failed' => $this->rerunFailed($request),
             'shutdown' => $this->shutdown(),
-            default => $this->unsupportedOrUnknown($tool),
+            default => $this->dispatchTool($tool, $request),
         };
 
         if ($this->recycleAfter > 0 && $this->probes >= $this->recycleAfter) {
@@ -95,19 +88,7 @@ final class RequestHandler
 
         $timeout = isset($request['timeout_ms']) ? (int) $request['timeout_ms'] : null;
         $result = $this->snippets->run($code, $timeout);
-        $this->probes++;
-
-        $this->session->put([
-            'code' => $code,
-            'status' => $result->status,
-            'duration_ms' => $result->durationMs,
-            'failures' => array_map(
-                fn (Failure $failure): array => $failure->detailed(),
-                $result->failures,
-            ),
-            'has_value' => $result->hasValue,
-            'value' => $result->hasValue ? $result->value : null,
-        ]);
+        $this->remember('probe', $request, $result);
 
         return $result;
     }
@@ -158,6 +139,19 @@ final class RequestHandler
         $code = $session['code'] ?? null;
         $status = (string) ($session['status'] ?? 'passed');
 
+        $tool = (string) ($session['tool'] ?? 'probe');
+        $replay = $session['replay'] ?? null;
+        if ($tool !== 'probe' && $tool !== '' && is_array($replay) && $status === 'failed' && $this->toolbox !== null) {
+            $result = $this->toolbox->handle($tool, $replay);
+            if ($result === null) {
+                return ProbeResult::error('tool', 'cannot rerun '.$tool);
+            }
+
+            $this->remember($tool, $replay, $result);
+
+            return $result;
+        }
+
         if (! is_string($code) || trim($code) === '' || $status !== 'failed') {
             return new ProbeResult(
                 status: 'passed',
@@ -180,12 +174,40 @@ final class RequestHandler
         return ProbeResult::passed(0);
     }
 
-    private function unsupportedOrUnknown(string $tool): ProbeResult
+    /** @param  array<string, mixed>  $request */
+    private function dispatchTool(string $tool, array $request): ProbeResult
     {
-        if (isset(self::LATER[$tool])) {
-            return ProbeResult::unsupported($tool, self::LATER[$tool]);
+        if ($this->toolbox === null) {
+            return ProbeResult::error('tool', 'unknown tool '.$tool);
         }
 
-        return ProbeResult::error('tool', 'unknown tool '.$tool);
+        $result = $this->toolbox->handle($tool, $request);
+        if ($result === null) {
+            return ProbeResult::error('tool', 'unknown tool '.$tool);
+        }
+
+        $this->remember($tool, $request, $result);
+
+        return $result;
+    }
+
+    /** @param  array<string, mixed>  $request */
+    private function remember(string $tool, array $request, ProbeResult $result): void
+    {
+        $this->probes++;
+        $code = $request['code'] ?? null;
+        $this->session->put([
+            'tool' => $tool,
+            'code' => is_string($code) ? $code : null,
+            'replay' => $request,
+            'status' => $result->status,
+            'duration_ms' => $result->durationMs,
+            'failures' => array_map(
+                fn (Failure $failure): array => $failure->detailed(),
+                $result->failures,
+            ),
+            'has_value' => $result->hasValue,
+            'value' => $result->hasValue ? $result->value : null,
+        ]);
     }
 }

@@ -1,10 +1,10 @@
 # Probe
 
-Agent-first testing runtime for Laravel. Phase 1 keeps a warm PHP worker booted and answers a throwaway probe with one compact JSON object.
+Agent-first testing runtime for Laravel. A warm PHP worker answers throwaway probes with one compact JSON object. The same result shape covers affected tests, browser checks, mutation, properties, architecture rules, and optional formal provers.
 
-Pest and PHPUnit stay the suite runners. Probe sits beside them for the agent loop: run a snippet, read a tiny result, repeat.
+Pest and PHPUnit stay the suite runners. Probe sits beside them for the agent loop: run a check, read a tiny result, repeat.
 
-The design proposal is in [DESIGN.md](DESIGN.md). This package is Phase 1 only.
+The design proposal is in [DESIGN.md](DESIGN.md). Phases 1 to 5 are implemented here.
 
 ## Install
 
@@ -34,6 +34,12 @@ vendor/bin/probe 'use App\Models\User; return User::query()->count();'
 vendor/bin/probe --tool=get_failures
 vendor/bin/probe --tool=rerun_failed
 vendor/bin/probe --tool=run_affected --paths=app/Models/User.php
+vendor/bin/probe --tool=probe_browser --url=http://127.0.0.1:8000 --contains=Laravel
+vendor/bin/probe --tool=mutate_check --file=app/Support/Money.php --limit=8
+vendor/bin/probe --tool=property_check --property=addition_commutative
+vendor/bin/probe --tool=architecture_check
+vendor/bin/probe --tool=formal_check --file=specs/auth.als
+vendor/bin/probe --tool=auto_probe --paths=app/Models/User.php
 vendor/bin/probe --status
 vendor/bin/probe --stop
 ```
@@ -66,8 +72,7 @@ Passing output is a single JSON object. The green form is about a dozen tokens, 
 | `status` | `passed`, `failed`, `error`, or `unsupported` |
 | `duration_ms` | Time inside the worker, rounded to milliseconds |
 | `failures` | Empty when green. Compact failures are `id` and `message` |
-| `value` | Present when the snippet returned a non-null value |
-| `tool`, `phase` | Present when a later-phase tool is called |
+| `value` | Snippet return value, or a small payload such as `ran`, `engine`, `killed`, or `selector` |
 | `rerun` | `false` when `rerun_failed` had nothing to run |
 
 `get_failures` returns the same status plus `type`, `file`, `line`, and `trace` for the last probe. That is the progressive-detail hook. The compact probe path does not include the trace.
@@ -77,14 +82,17 @@ Passing output is a single JSON object. The green form is about a dozen tokens, 
 | Tool | Phase | Behavior |
 | --- | --- | --- |
 | `probe` | 1 | Run a snippet in the warm app |
-| `get_failures` | 1 | Detail for the last probe |
-| `rerun_failed` | 1 | Run the last failed snippet again |
-| `run_affected` | 2 | Returns `unsupported` |
-| `probe_browser` | 2 | Returns `unsupported` |
-| `mutate_check`, `property_check` | 3 | Returns `unsupported` |
-| `formal_check` | 4 | Returns `unsupported` |
+| `get_failures` | 1 | Detail for the last result |
+| `rerun_failed` | 1 | Run the last failed probe or check again |
+| `probe_browser` | 2 | Fetch a page with Lightpanda, or Playwright when steps need it |
+| `run_affected` | 2 | Run the Pest or PHPUnit files impacted by the given paths |
+| `mutate_check` | 3 | Flip operators in one file and see which mutants survive |
+| `property_check` | 3 | Run a snippet or a built-in property against generated cases |
+| `architecture_check` | 3 | Enforce `forbid_use` rules and run `tests/Architecture` |
+| `formal_check` | 4 | Run Alloy, TLC, Dafny, or Lean when that binary exists |
+| `auto_probe` | 5 | Pick a few impacted tests, or a class smoke probe |
 
-An MCP server can be a thin wrapper over the same messages later. Phase 1 speaks JSON over a Unix socket and over the CLI.
+An MCP server can still be a thin wrapper over the same JSON messages. The agent entry is the CLI and the Unix socket.
 
 Request:
 
@@ -104,7 +112,7 @@ Response:
 
 State lives in `storage/framework/probe/` (`active.json`, `session.json`, the socket). Override the location with `PROBE_HOME` and `PROBE_SOCKET` in `.env` so the thin client and Artisan agree. The supervisor lock stops two clients from booting two workers.
 
-The pool size is `PROBE_WORKERS` (default 1). Phase 1 tools always talk to worker 0 because the last-failure session is per worker directory, shared through `session.json`. Extra workers can be started for later parallel runs. The supervisor restarts a worker that dies, and recycles it after `recycle_after` probes (default 500).
+The pool size is `PROBE_WORKERS` (default 1). Agent tools enter through worker 0 so the last result stays in one `session.json`. `run_affected` uses that same count as the number of PHPUnit shards. `Probe\Selective\ShardPlanner` packs files by the durations in `durations.json` (longest first). With one worker, or one file, there is a single shard. The supervisor restarts a worker that dies, and recycles it after `recycle_after` probes (default 500).
 
 `--cold` stops the current worker first. `--stop` shuts it down.
 
@@ -127,6 +135,54 @@ Set `PROBE_DATABASE=host` to keep the application's default connection.
 `probe.prepare` is optional PHP run once at worker boot, after migrations and outside the per-probe transaction. Use it to create tables that should survive for the life of the worker.
 
 On the SQLite used here, `Schema::create` inside a probe rolls back with the transaction, so the next probe does not see that table. Put durable schema in `probe.prepare` or in migrations. Some DDL statements commit immediately on other SQLite builds, so do not rely on either outcome from inside a probe.
+
+## Browser
+
+`probe_browser` prefers Lightpanda (`lightpanda fetch --dump html <url>`). Set `PROBE_BROWSER=playwright` to force Playwright, or `PROBE_LIGHTPANDA` / `PROBE_PLAYWRIGHT` to an absolute binary. `engine: auto` uses Lightpanda when it is on `PATH`, then Playwright.
+
+Interaction `steps` (`goto`, `fill`, `click`) always go to Playwright. The package ships `resources/playwright-probe.mjs`, which needs Node and the `playwright` package in the app. If neither engine exists, the result is `status: error` with `id: missing_tool`.
+
+URLs must be `http` or `https`. A path such as `/login` is joined to `PROBE_BASE_URL` or `APP_URL`. `--contains` and `--absent` are exact substring checks. A green browser result is `failures: []` plus `value.engine`.
+
+## Affected tests
+
+`run_affected --paths=app/Models/User.php` builds a file graph under the project (it skips `vendor`):
+
+- the changed file itself when it is a test
+- tests that reference a class defined in the changed file
+- tests whose filename contains the source stem (`UserController.php` also matches `User`)
+
+Empty `--paths` uses `git diff --name-only HEAD` plus untracked files. No paths and no diff is an error. No matching tests is a pass with `value.ran` of 0.
+
+The runner is `vendor/bin/pest` when it exists, otherwise `vendor/bin/phpunit`. Override it with `PROBE_TEST_RUNNER`. Output is read from JUnit, not from the decorated terminal. Set `PROBE_SELECTIVE_WORKERS` to shard independently of the warm pool.
+
+## Quality
+
+`mutate_check --file=app/Support/Money.php` applies a few one-token flips (`+`/`-`, comparisons, `true`/`false`) and reruns the affected tests. The original file is restored afterwards, including on shutdown. A survivor is a normal failure: `survived + to - at app/Support/Money.php:12`. If the tests already fail, or none cover the file, the tool returns an error instead of a fake score. Default limit is 8.
+
+`property_check` runs the snippet once per generated case. `$input`, `$a`, and `$b` are in scope. The snippet must return `true`. Built-in names: `addition_commutative`, `strlen_reverse`, `sort_idempotent`. `--cases` and `--seed` keep the sample deterministic. A failing case is one compact failure that includes the case index and the input.
+
+`architecture_check` reads `probe.architecture.rules`:
+
+```php
+'rules' => [
+    ['path' => 'app/Http/Controllers', 'forbid_use' => ['Illuminate\Support\Facades\DB']],
+],
+```
+
+It also runs `*Test.php` files under `tests/Architecture` and `tests/Arch` through Pest or PHPUnit, which is the path for Pest `arch()` tests. No rules and no files is an error, so a misconfigured check does not look green.
+
+## Formal checks
+
+`formal_check --file=specs/auth.als` picks the bridge from the extension (`.als`, `.tla`, `.dfy`, `.lean`) or from `--bridge=alloy|tla|dafny|lean`. Binaries default to `alloy`, `tlc`, `dafny`, and `lean`. Override with `PROBE_ALLOY`, `PROBE_TLA`, `PROBE_DAFNY`, and `PROBE_LEAN`.
+
+A missing binary is `missing_tool`. A counterexample is `status: failed` with a short message. `get_failures` adds the prover trace. Inline specs can be passed as `code` with a `bridge`.
+
+## Auto probes
+
+`auto_probe` ranks impacted tests with `Probe\Intelligence\HeuristicSelector` (direct matches, then recent failures in `failure-history.json`) and runs at most `PROBE_AUTO_LIMIT` of them (default 8). If nothing matches, it probes `class_exists` for classes in the changed files.
+
+Set `PROBE_LLM=true` and `PROBE_LLM_ENDPOINT` to ask `Probe\Intelligence\LlmSelector` first. It expects JSON `{"tests":["..."]}`. If the call is disabled, unconfigured, or fails, the heuristic selector runs and the result says `"selector":"heuristic"`. Tests and CI leave the LLM off, so no API key is required.
 
 ## Pest and PHPUnit
 
@@ -173,18 +229,25 @@ Published to `config/probe.php`.
 | `max_value_bytes` | `1024` | Largest returned value kept inline |
 | `preload` | `[]` | Extra files to compile at boot |
 | `opcache` | `true` | Pass OPcache file-cache flags to the worker |
+| `browser.engine` | `auto` | `auto`, `lightpanda`, or `playwright` |
+| `selective.runner` | Pest, else PHPUnit | Override with `PROBE_TEST_RUNNER` |
+| `mutate.limit` | `8` | Operator flips per `mutate_check` |
+| `property.cases` | `20` | Generated cases per property |
+| `architecture.rules` | `[]` | `path` plus `forbid_use` list |
+| `formal.*` | `alloy`, `tlc`, `dafny`, `lean` | Optional prover binaries |
+| `intelligence.llm` | `false` | Heuristic selector unless an endpoint is set |
 
 Timeouts need `ext-pcntl`. A tight CPU loop may run until the client gives up and the supervisor kills the worker. The next call boots a fresh one.
 
 ## Security
 
-Probe executes arbitrary PHP inside the application. It is a local dev dependency. Do not expose the socket, do not install it with Composer in production (`--dev` keeps it out of `--no-dev` installs), and do not point it at untrusted snippets.
+Probe executes arbitrary PHP inside the application. It is a local dev dependency. Do not expose the socket, do not install it with Composer in production (`--dev` keeps it out of `--no-dev` installs), and do not point it at untrusted snippets. `mutate_check` rewrites the target file until the run finishes. Browser and formal tools shell out to local binaries.
 
-## Phase 1 scope
+## Scope
 
-Included: agent tools above, warm worker pool, compact JSON, SQLite memory, config publishing, package tests.
+Shipped: warm workers, compact JSON, Lightpanda/Playwright browser probes, affected-test selection with duration sharding, scoped mutation, property checks, architecture rules, Alloy/TLA+/Dafny/Lean bridges, and heuristic auto-probes.
 
-Not included: Lightpanda or Playwright, selective test impact, mutation testing, property checks, and formal bridges. Those tools return `unsupported` with a phase number. Empty interfaces live in `Probe\Contract` for the later work.
+Still local-only: Unix sockets (no Windows), MCP as a separate wrapper, and a live model call only when `PROBE_LLM` is set. External binaries are detected at runtime and degrade to `missing_tool`.
 
 ## License
 

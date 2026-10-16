@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Probe\Tests;
 
+use Probe\Phase\Toolbox;
 use Probe\Result\JsonResultEncoder;
 use Probe\Runner\DatabaseGuard;
 use Probe\Runner\RequestHandler;
@@ -49,14 +50,37 @@ final class RequestHandlerTest extends TestCase
         );
     }
 
-    public function test_later_tools_are_unsupported(): void
+    public function test_phase_tools_return_real_errors_instead_of_stubs(): void
     {
-        $handler = $this->handler();
+        $root = sys_get_temp_dir().'/probe-handler-root-'.bin2hex(random_bytes(4));
+        mkdir($root, 0775, true);
+        $handler = $this->handler(new Toolbox($root, [
+            'browser' => ['engine' => 'auto', 'lightpanda' => 'lightpanda-not-installed', 'playwright' => 'playwright-not-installed'],
+            'formal' => ['alloy' => '/no/such/alloy'],
+            'intelligence' => ['llm' => false],
+        ], new SnippetRunner(new DatabaseGuard()), $this->home()));
 
-        $this->assertSame(2, $handler->handle(['tool' => 'run_affected', 'paths' => ['app/User.php']])['phase']);
-        $this->assertSame(2, $handler->handle(['tool' => 'probe_browser'])['phase']);
-        $this->assertSame(3, $handler->handle(['tool' => 'mutate_check'])['phase']);
-        $this->assertSame(4, $handler->handle(['tool' => 'formal_check'])['phase']);
+        $affected = $handler->handle(['tool' => 'run_affected']);
+        $this->assertSame('error', $affected['status']);
+        $this->assertSame('paths', $affected['failures'][0]['id']);
+
+        $browser = $handler->handle(['tool' => 'probe_browser', 'url' => 'http://example.test']);
+        $this->assertSame('error', $browser['status']);
+        $this->assertSame('missing_tool', $browser['failures'][0]['id']);
+
+        $formal = $handler->handle(['tool' => 'formal_check', 'bridge' => 'alloy']);
+        $this->assertSame('error', $formal['status']);
+        $this->assertContains($formal['failures'][0]['id'], ['file', 'missing_tool']);
+
+        $property = $handler->handle([
+            'tool' => 'property_check',
+            'property' => 'addition_commutative',
+            'cases' => 4,
+            'seed' => 1,
+        ]);
+        $this->assertSame('passed', $property['status'], json_encode($property));
+        $this->assertSame([], $property['failures']);
+
         $this->assertSame('error', $handler->handle(['tool' => 'nope'])['status']);
     }
 
@@ -68,7 +92,7 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame('code', $result['failures'][0]['id']);
     }
 
-    private function handler(): RequestHandler
+    private function handler(?Toolbox $toolbox = null): RequestHandler
     {
         $database = new DatabaseGuard();
         $database->boot($this->app);
@@ -78,6 +102,9 @@ final class RequestHandlerTest extends TestCase
             new SessionStore($this->home().'/session.json'),
             new JsonResultEncoder(),
             $database,
+            100000,
+            500,
+            $toolbox,
         );
     }
 

@@ -6,7 +6,7 @@ namespace Probe\Contract;
 
 /**
  * Phase 2. Hybrid browser probes (Lightpanda by default, Playwright as fallback).
- * The agent tool name is probe_browser. Phase 1 answers that tool with status unsupported.
+ * The agent tool name is probe_browser. HybridBrowser is the Phase 2 implementation.
  */
 interface BrowserProbe
 {

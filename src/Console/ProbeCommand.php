@@ -11,10 +11,21 @@ final class ProbeCommand extends Command
     protected $signature = 'probe
         {code? : PHP snippet. Return a value to include it in the JSON.}
         {--file= : Read the snippet from a file}
-        {--tool=probe : probe, get_failures, rerun_failed, or run_affected}
+        {--tool=probe : Agent tool name}
         {--timeout= : Timeout in milliseconds}
         {--id= : Failure id for get_failures}
-        {--paths= : Comma-separated paths for run_affected}
+        {--paths= : Comma-separated paths for run_affected and auto_probe}
+        {--url= : Page URL for probe_browser}
+        {--contains= : Text the page must include}
+        {--absent= : Text the page must not include}
+        {--engine= : lightpanda, playwright, or auto}
+        {--steps= : JSON array of browser steps}
+        {--http-status= : Expected HTTP status when the engine reports one}
+        {--bridge= : alloy, tla, dafny, or lean}
+        {--cases= : Property cases to generate}
+        {--seed= : Property generator seed}
+        {--limit= : Mutation or auto_probe limit}
+        {--property= : Built-in property name}
         {--cold : Stop any warm worker before running}
         {--benchmark : Measure cold and warm probe latency}
         {--samples=20 : Samples used by --benchmark}
@@ -38,6 +49,17 @@ final class ProbeCommand extends Command
             stop: (bool) $this->option('stop'),
             status: (bool) $this->option('status'),
             samples: max(1, (int) $this->option('samples')),
+            url: $this->stringOption('url'),
+            bridge: $this->stringOption('bridge'),
+            cases: $this->intOption('cases'),
+            seed: $this->intOption('seed'),
+            engine: $this->stringOption('engine'),
+            contains: $this->stringOption('contains'),
+            absent: $this->stringOption('absent'),
+            limit: $this->intOption('limit'),
+            property: $this->stringOption('property'),
+            steps: $this->stringOption('steps'),
+            httpStatus: $this->intOption('http-status'),
         );
 
         $this->output->setDecorated(false);
@@ -45,5 +67,19 @@ final class ProbeCommand extends Command
         return $dispatcher->run($invocation, function (string $json): void {
             $this->output->write($json);
         });
+    }
+
+    private function stringOption(string $name): ?string
+    {
+        $value = $this->option($name);
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    private function intOption(string $name): ?int
+    {
+        $value = $this->option($name);
+
+        return is_numeric($value) ? (int) $value : null;
     }
 }

@@ -11,8 +11,8 @@ use Throwable;
 
 /**
  * Keeps a small set of warm PHP workers alive.
- * Phase 1 tools always use worker 0. Extra slots exist so later parallel
- * runs can boot more processes with the same supervisor.
+ * Agent tools enter through worker 0. run_affected shards PHPUnit processes
+ * using the same worker count when there is more than one test file.
  */
 final class Pool
 {

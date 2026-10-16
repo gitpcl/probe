@@ -7,11 +7,8 @@ namespace Probe\Console;
 use Illuminate\Console\Command;
 use Probe\Probe;
 use Probe\Project;
-use Probe\Result\JsonResultEncoder;
 use Probe\Runner\DatabaseGuard;
-use Probe\Runner\RequestHandler;
-use Probe\Runner\SnippetRunner;
-use Probe\Session\SessionStore;
+use Probe\Runner\HandlerFactory;
 use Probe\Support\Preloader;
 use Probe\Worker\Registry;
 use Probe\Worker\Server;
@@ -67,14 +64,7 @@ final class WorkCommand extends Command
             probe_execute_snippet($prepare);
         }
 
-        $handler = new RequestHandler(
-            $this->laravel->make(SnippetRunner::class),
-            new SessionStore($home.'/session.json'),
-            $this->laravel->make(JsonResultEncoder::class),
-            $database,
-            (int) config('probe.max_code_bytes', 100000),
-            (int) config('probe.recycle_after', 500),
-        );
+        $handler = HandlerFactory::make($this->laravel, $home);
 
         $registry = new Registry();
         $meta = array_filter([

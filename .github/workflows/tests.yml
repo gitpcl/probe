@@ -16,7 +16,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: pdo_sqlite, pcntl, posix
+          extensions: pdo_sqlite, pcntl, posix, xml
           coverage: none
       - run: composer update --prefer-dist --no-progress --no-interaction
       - run: composer test

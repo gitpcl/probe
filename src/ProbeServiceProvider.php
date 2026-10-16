@@ -11,6 +11,7 @@ use Probe\Console\ProbeCommand;
 use Probe\Console\WorkCommand;
 use Probe\Result\JsonResultEncoder;
 use Probe\Runner\DatabaseGuard;
+use Probe\Runner\HandlerFactory;
 use Probe\Runner\RequestHandler;
 use Probe\Runner\SnippetRunner;
 use Probe\Session\SessionStore;
@@ -53,14 +54,12 @@ final class ProbeServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(RequestHandler::class, function ($app): RequestHandler {
-            return new RequestHandler(
-                $app->make(SnippetRunner::class),
-                $app->make(SessionStore::class),
-                $app->make(JsonResultEncoder::class),
-                $app->make(DatabaseGuard::class),
-                (int) $app->make('config')->get('probe.max_code_bytes', 100000),
-                (int) $app->make('config')->get('probe.recycle_after', 500),
-            );
+            $home = $app->make('config')->get('probe.home');
+            if (! is_string($home) || $home === '') {
+                $home = Project::home(base_path());
+            }
+
+            return HandlerFactory::make($app, $home);
         });
     }
 

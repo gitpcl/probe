@@ -23,6 +23,17 @@ final class Argv
         $help = false;
         $version = false;
         $samples = 20;
+        $url = null;
+        $bridge = null;
+        $cases = null;
+        $seed = null;
+        $engine = null;
+        $contains = null;
+        $absent = null;
+        $limit = null;
+        $property = null;
+        $steps = null;
+        $httpStatus = null;
         $positionals = [];
 
         $args = array_slice($argv, 1);
@@ -104,6 +115,39 @@ final class Argv
                 case '--samples':
                     $samples = $value !== null ? (int) $value : 20;
                     break;
+                case '--url':
+                    $url = $value;
+                    break;
+                case '--bridge':
+                    $bridge = $value;
+                    break;
+                case '--cases':
+                    $cases = $value !== null ? (int) $value : null;
+                    break;
+                case '--seed':
+                    $seed = $value !== null ? (int) $value : null;
+                    break;
+                case '--engine':
+                    $engine = $value;
+                    break;
+                case '--contains':
+                    $contains = $value;
+                    break;
+                case '--absent':
+                    $absent = $value;
+                    break;
+                case '--limit':
+                    $limit = $value !== null ? (int) $value : null;
+                    break;
+                case '--property':
+                    $property = $value;
+                    break;
+                case '--steps':
+                    $steps = $value;
+                    break;
+                case '--http-status':
+                    $httpStatus = $value !== null ? (int) $value : null;
+                    break;
                 default:
                     $positionals[] = $arg;
             }
@@ -123,6 +167,17 @@ final class Argv
             help: $help,
             version: $version,
             samples: max(1, $samples),
+            url: $url,
+            bridge: $bridge,
+            cases: $cases,
+            seed: $seed,
+            engine: $engine,
+            contains: $contains,
+            absent: $absent,
+            limit: $limit,
+            property: $property,
+            steps: $steps,
+            httpStatus: $httpStatus,
         );
     }
 }
