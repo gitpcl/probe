@@ -1,0 +1,27 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$autoloadCandidates = [
+    __DIR__.'/../vendor/autoload.php',
+    __DIR__.'/../../../autoload.php',
+];
+
+$autoload = null;
+
+foreach ($autoloadCandidates as $candidate) {
+    if (is_file($candidate)) {
+        $autoload = $candidate;
+        break;
+    }
+}
+
+if ($autoload === null) {
+    fwrite(STDOUT, '{"status":"error","duration_ms":0,"failures":[{"id":"autoload","message":"could not locate vendor/autoload.php"}]}'."\n");
+    exit(2);
+}
+
+require $autoload;
+
+exit(Probe\Console\Dispatcher::main($argv));
