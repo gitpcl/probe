@@ -1,0 +1,5 @@
+{
+    "name": "probe/fixture-app",
+    "description": "Minimal Laravel entrypoint used by Probe's worker tests.",
+    "require": {}
+}

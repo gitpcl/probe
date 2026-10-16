@@ -1,0 +1,44 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Contracts\Console\Kernel;
+use Orchestra\Testbench\Foundation\Application;
+use Probe\ProbeServiceProvider;
+use Symfony\Component\Console\Input\ArgvInput;
+use Symfony\Component\Console\Output\ConsoleOutput;
+
+require dirname(__DIR__, 3).'/vendor/autoload.php';
+
+$skeleton = dirname(__DIR__, 3).'/vendor/orchestra/testbench-core/laravel';
+
+$app = Application::create(
+    basePath: $skeleton,
+    options: [
+        'load_environment_variables' => false,
+        'extra' => [
+            'providers' => [ProbeServiceProvider::class],
+            'env' => [
+                'APP_KEY' => 'base64:YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=',
+                'APP_ENV' => 'testing',
+                'DB_CONNECTION' => 'sqlite',
+                'PROBE_DATABASE' => 'sqlite_memory',
+                'PROBE_MIGRATE' => 'false',
+                'PROBE_WORKERS' => '1',
+            ],
+        ],
+    ],
+);
+
+$app['config']->set('probe.database', 'sqlite_memory');
+$app['config']->set('probe.migrate', false);
+$app['config']->set('probe.isolate', true);
+$app['config']->set('app.key', 'base64:YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=');
+
+$kernel = $app->make(Kernel::class);
+$input = new ArgvInput();
+$status = $kernel->handle($input, new ConsoleOutput());
+$kernel->terminate($input, $status);
+
+exit($status);
