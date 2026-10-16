@@ -6,7 +6,7 @@ namespace Probe\Contract;
 
 /**
  * Phase 4. Alloy, TLA+, Dafny, and Lean bridges.
- * Counterexamples should become ordinary Probe failures once this exists.
+ * Counterexamples are ordinary Probe failures. Missing binaries are errors.
  */
 interface FormalBridge
 {

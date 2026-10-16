@@ -123,9 +123,9 @@ final class WorkerPoolTest extends TestCase
             'tool' => 'run_affected',
             'paths' => ['app/Models/User.php'],
         ], 10000), true, 512, JSON_THROW_ON_ERROR);
-        $this->assertSame('unsupported', $affected['status']);
-        $this->assertSame('run_affected', $affected['tool']);
-        $this->assertSame(2, $affected['phase']);
+        $this->assertSame('passed', $affected['status'], json_encode($affected));
+        $this->assertSame([], $affected['failures']);
+        $this->assertSame(0, $affected['value']['ran']);
 
         $status = $this->pool->status($this->root);
         $this->assertSame('running', $status['status']);

@@ -65,4 +65,72 @@ return [
     | Set PROBE_OPCACHE=0 to pass the plain PHP binary instead.
     */
     'opcache' => filter_var(env('PROBE_OPCACHE', true), FILTER_VALIDATE_BOOL),
+
+    /*
+    | Browser probes. auto prefers Lightpanda, then Playwright.
+    | Interaction steps always use Playwright. Point lightpanda or playwright
+    | at an absolute path to override the PATH lookup.
+    */
+    'browser' => [
+        'engine' => env('PROBE_BROWSER', 'auto'),
+        'lightpanda' => env('PROBE_LIGHTPANDA', 'lightpanda'),
+        'playwright' => env('PROBE_PLAYWRIGHT', 'playwright'),
+        'node' => env('PROBE_NODE', 'node'),
+        'base_url' => env('PROBE_BASE_URL', env('APP_URL', 'http://127.0.0.1:8000')),
+        'timeout_ms' => (int) env('PROBE_BROWSER_TIMEOUT_MS', 8000),
+        'lightpanda_args' => ['fetch', '--dump', 'html'],
+    ],
+
+    /*
+    | run_affected. runner is an optional Pest or PHPUnit binary.
+    | workers null follows the warm pool size and is the shard count.
+    */
+    'selective' => [
+        'runner' => env('PROBE_TEST_RUNNER'),
+        'workers' => env('PROBE_SELECTIVE_WORKERS'),
+        'timeout_ms' => (int) env('PROBE_SELECTIVE_TIMEOUT_MS', 120000),
+    ],
+
+    'mutate' => [
+        'limit' => (int) env('PROBE_MUTATE_LIMIT', 8),
+    ],
+
+    'property' => [
+        'cases' => (int) env('PROBE_PROPERTY_CASES', 20),
+        'seed' => (int) env('PROBE_PROPERTY_SEED', 1),
+    ],
+
+    /*
+    | forbid_use rules are static. tests/Architecture is executed when present,
+    | which is the Pest arch() integration path.
+    */
+    'architecture' => [
+        'paths' => ['tests/Architecture', 'tests/Arch'],
+        'rules' => [],
+    ],
+
+    /*
+    | Optional prover binaries. A missing binary returns missing_tool.
+    */
+    'formal' => [
+        'alloy' => env('PROBE_ALLOY', 'alloy'),
+        'tla' => env('PROBE_TLA', 'tlc'),
+        'dafny' => env('PROBE_DAFNY', 'dafny'),
+        'lean' => env('PROBE_LEAN', 'lean'),
+        'timeout_ms' => (int) env('PROBE_FORMAL_TIMEOUT_MS', 20000),
+        'args' => [],
+    ],
+
+    /*
+    | auto_probe uses the heuristic selector unless llm is true and an endpoint is set.
+    | CI should leave llm false so no network key is required.
+    */
+    'intelligence' => [
+        'limit' => (int) env('PROBE_AUTO_LIMIT', 8),
+        'llm' => filter_var(env('PROBE_LLM', false), FILTER_VALIDATE_BOOL),
+        'endpoint' => env('PROBE_LLM_ENDPOINT'),
+        'model' => env('PROBE_LLM_MODEL', ''),
+        'api_key' => env('PROBE_LLM_API_KEY'),
+        'timeout_ms' => (int) env('PROBE_LLM_TIMEOUT_MS', 2000),
+    ],
 ];

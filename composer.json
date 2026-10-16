@@ -1,6 +1,6 @@
 {
     "name": "gitpcl/probe",
-    "description": "Agent-first Laravel testing runtime: warm PHP workers and compact JSON probes.",
+    "description": "Agent-first Laravel testing runtime: warm PHP workers, compact JSON probes, selective tests, and optional browser, mutation, and formal checks.",
     "keywords": ["laravel", "testing", "probe", "phpunit", "pest", "agents"],
     "homepage": "https://github.com/gitpcl/probe",
     "license": "MIT",

@@ -5,10 +5,18 @@ declare(strict_types=1);
 namespace Probe\Tests;
 
 use PHPUnit\Framework\TestCase;
+use Probe\Browser\HybridBrowser;
 use Probe\Contract\BrowserProbe;
 use Probe\Contract\FormalBridge;
 use Probe\Contract\QualityCheck;
 use Probe\Contract\SelectiveRunner;
+use Probe\Formal\SpecRunner;
+use Probe\Intelligence\HeuristicSelector;
+use Probe\Intelligence\Selector;
+use Probe\Quality\ArchitectureCheck;
+use Probe\Quality\MutationCheck;
+use Probe\Quality\PropertyCheck;
+use Probe\Selective\AffectedRunner;
 
 final class PackageShapeTest extends TestCase
 {
@@ -24,11 +32,14 @@ final class PackageShapeTest extends TestCase
         $this->assertSame('library', $json['type']);
     }
 
-    public function test_later_phases_have_interfaces_and_no_implementations_yet(): void
+    public function test_phase_tools_implement_the_contracts(): void
     {
-        $this->assertTrue(interface_exists(BrowserProbe::class));
-        $this->assertTrue(interface_exists(SelectiveRunner::class));
-        $this->assertTrue(interface_exists(FormalBridge::class));
-        $this->assertTrue(interface_exists(QualityCheck::class));
+        $this->assertContains(BrowserProbe::class, class_implements(HybridBrowser::class));
+        $this->assertContains(SelectiveRunner::class, class_implements(AffectedRunner::class));
+        $this->assertContains(FormalBridge::class, class_implements(SpecRunner::class));
+        $this->assertContains(QualityCheck::class, class_implements(MutationCheck::class));
+        $this->assertContains(QualityCheck::class, class_implements(PropertyCheck::class));
+        $this->assertContains(QualityCheck::class, class_implements(ArchitectureCheck::class));
+        $this->assertContains(Selector::class, class_implements(HeuristicSelector::class));
     }
 }

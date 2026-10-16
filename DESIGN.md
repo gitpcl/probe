@@ -1,8 +1,18 @@
 # Probe
 ## AI-Native Testing Runtime for Laravel
 
-**Status**: Design proposal — ready for implementation
+**Status**: Phases 1 to 5 are implemented in this repository. This file is the original design. The README describes the commands that ship.
 **Goal**: A Composer package that makes AI coding agents the primary user of the test suite. Agents can probe changes, find bugs, and re-verify in a tight loop measured in tens of milliseconds to a few seconds, while still supporting traditional human-written tests and formal verification.
+
+## Progress
+
+| Phase | Shipped |
+| --- | --- |
+| 1 | Warm PHP workers, `probe`, `get_failures`, `rerun_failed`, compact JSON |
+| 2 | `probe_browser` (Lightpanda, Playwright fallback), `run_affected`, duration-aware `ShardPlanner` |
+| 3 | `mutate_check`, `property_check`, `architecture_check` |
+| 4 | `formal_check` for Alloy, TLA+, Dafny, and Lean 4. Counterexamples are normal failures |
+| 5 | `auto_probe` via `HeuristicSelector`. `LlmSelector` is off unless `PROBE_LLM` and an endpoint are set |
 
 ---
 

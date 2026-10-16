@@ -90,7 +90,7 @@ final class Dispatcher
         }
 
         $code = $invocation->code;
-        if ($invocation->file !== null) {
+        if ($invocation->file !== null && $invocation->tool === 'probe') {
             if (! is_file($invocation->file)) {
                 return $this->emitError('file', 'snippet file not found');
             }
@@ -128,6 +128,48 @@ final class Dispatcher
                     array_map('trim', explode(',', $invocation->paths)),
                     static fn (string $path): bool => $path !== '',
                 ));
+            }
+
+            if ($invocation->file !== null && $invocation->tool !== 'probe') {
+                $request['file'] = $invocation->file;
+            }
+
+            foreach ([
+                'url' => $invocation->url,
+                'bridge' => $invocation->bridge,
+                'engine' => $invocation->engine,
+                'contains' => $invocation->contains,
+                'absent' => $invocation->absent,
+                'property' => $invocation->property,
+            ] as $key => $value) {
+                if (is_string($value) && $value !== '') {
+                    $request[$key] = $value;
+                }
+            }
+
+            if ($invocation->cases !== null) {
+                $request['cases'] = $invocation->cases;
+            }
+
+            if ($invocation->seed !== null) {
+                $request['seed'] = $invocation->seed;
+            }
+
+            if ($invocation->limit !== null) {
+                $request['limit'] = $invocation->limit;
+            }
+
+            if ($invocation->httpStatus !== null) {
+                $request['http_status'] = $invocation->httpStatus;
+            }
+
+            if ($invocation->steps !== null && $invocation->steps !== '') {
+                $steps = json_decode($invocation->steps, true);
+                if (! is_array($steps)) {
+                    return $this->emitError('steps', 'steps must be a JSON array');
+                }
+
+                $request['steps'] = $steps;
             }
 
             $line = $this->pool->dispatch($root, $request, $invocation->timeoutMs);
@@ -254,6 +296,12 @@ Usage:
   vendor/bin/probe --tool=get_failures --id=1
   vendor/bin/probe --tool=rerun_failed
   vendor/bin/probe --tool=run_affected --paths=app/Models/User.php
+  vendor/bin/probe --tool=probe_browser --url=http://127.0.0.1:8000 --contains=Laravel
+  vendor/bin/probe --tool=mutate_check --file=app/Models/User.php --limit=8
+  vendor/bin/probe --tool=property_check --property=addition_commutative --cases=20
+  vendor/bin/probe --tool=architecture_check
+  vendor/bin/probe --tool=formal_check --file=specs/auth.als
+  vendor/bin/probe --tool=auto_probe --paths=app/Models/User.php
   vendor/bin/probe --status
   vendor/bin/probe --stop
   vendor/bin/probe --cold 'return 1;'

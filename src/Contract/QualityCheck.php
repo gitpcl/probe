@@ -6,7 +6,7 @@ namespace Probe\Contract;
 
 /**
  * Phase 3. Mutation, property, and architecture checks.
- * Phase 1 answers mutate_check and property_check with status unsupported.
+ * Each check returns the same compact Probe result as a PHP probe.
  */
 interface QualityCheck
 {

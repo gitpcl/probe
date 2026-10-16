@@ -13,7 +13,7 @@ use Probe\Worker\Pool;
  */
 final class Probe
 {
-    public const VERSION = '0.1.0';
+    public const VERSION = '0.5.0';
 
     public const WARM_TARGET_MS = 150;
 
@@ -38,13 +38,58 @@ final class Probe
     }
 
     /**
-     * Phase 2 stub. The worker returns status "unsupported".
-     *
      * @param  list<string>  $paths
      */
     public static function runAffected(array $paths = []): ProbeResult
     {
         return app(Pool::class)->runTool(base_path(), 'run_affected', [
+            'paths' => array_values($paths),
+        ]);
+    }
+
+    /** @param  array<string, mixed>  $extra */
+    public static function browser(string $url, array $extra = []): ProbeResult
+    {
+        return app(Pool::class)->runTool(base_path(), 'probe_browser', array_merge(['url' => $url], $extra));
+    }
+
+    public static function mutate(string $path, int $limit = 8): ProbeResult
+    {
+        return app(Pool::class)->runTool(base_path(), 'mutate_check', [
+            'path' => $path,
+            'limit' => $limit,
+        ]);
+    }
+
+    public static function property(string $code, int $cases = 20, ?int $seed = null): ProbeResult
+    {
+        $request = ['code' => $code, 'cases' => $cases];
+        if ($seed !== null) {
+            $request['seed'] = $seed;
+        }
+
+        return app(Pool::class)->runTool(base_path(), 'property_check', $request);
+    }
+
+    public static function architecture(): ProbeResult
+    {
+        return app(Pool::class)->runTool(base_path(), 'architecture_check');
+    }
+
+    public static function formal(string $file, ?string $bridge = null): ProbeResult
+    {
+        $request = ['file' => $file];
+        if ($bridge !== null && $bridge !== '') {
+            $request['bridge'] = $bridge;
+        }
+
+        return app(Pool::class)->runTool(base_path(), 'formal_check', $request);
+    }
+
+    /** @param  list<string>  $paths */
+    public static function auto(array $paths = []): ProbeResult
+    {
+        return app(Pool::class)->runTool(base_path(), 'auto_probe', [
             'paths' => array_values($paths),
         ]);
     }

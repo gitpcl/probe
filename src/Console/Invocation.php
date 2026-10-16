@@ -20,5 +20,16 @@ final class Invocation
         public readonly bool $help = false,
         public readonly bool $version = false,
         public readonly int $samples = 20,
+        public readonly ?string $url = null,
+        public readonly ?string $bridge = null,
+        public readonly ?int $cases = null,
+        public readonly ?int $seed = null,
+        public readonly ?string $engine = null,
+        public readonly ?string $contains = null,
+        public readonly ?string $absent = null,
+        public readonly ?int $limit = null,
+        public readonly ?string $property = null,
+        public readonly ?string $steps = null,
+        public readonly ?int $httpStatus = null,
     ) {}
 }
