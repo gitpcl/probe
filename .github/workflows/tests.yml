@@ -6,11 +6,16 @@ on:
 
 jobs:
   phpunit:
+    name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         php: ['8.2', '8.3', '8.4']
+        laravel: ['12.*', '13.*']
+        exclude:
+          - php: '8.2'
+            laravel: '13.*'
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -18,5 +23,19 @@ jobs:
           php-version: ${{ matrix.php }}
           extensions: pdo_sqlite, pcntl, posix, xml
           coverage: none
-      - run: composer update --prefer-dist --no-progress --no-interaction
+      - run: composer update --with "illuminate/support:${{ matrix.laravel }}" --prefer-dist --no-progress --no-interaction
       - run: composer test
+
+  quality:
+    name: Pint and PHPStan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_sqlite, pcntl, posix, xml
+          coverage: none
+      - run: composer update --prefer-dist --no-progress --no-interaction
+      - run: composer lint
+      - run: composer analyse

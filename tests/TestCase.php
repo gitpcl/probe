@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Probe\Tests;
 
+use Illuminate\Foundation\Application;
 use Orchestra\Testbench\TestCase as Orchestra;
 use Probe\ProbeServiceProvider;
 
@@ -15,7 +16,7 @@ abstract class TestCase extends Orchestra
     }
 
     /**
-     * @param  \Illuminate\Foundation\Application  $app
+     * @param  Application  $app
      */
     protected function defineEnvironment($app): void
     {

@@ -49,36 +49,43 @@ final class Argv
 
             if ($arg === '--help' || $arg === '-h') {
                 $help = true;
+
                 continue;
             }
 
             if ($arg === '--version' || $arg === '-V') {
                 $version = true;
+
                 continue;
             }
 
             if ($arg === '--cold') {
                 $cold = true;
+
                 continue;
             }
 
             if ($arg === '--benchmark') {
                 $benchmark = true;
+
                 continue;
             }
 
             if ($arg === '--stop') {
                 $stop = true;
+
                 continue;
             }
 
             if ($arg === '--status') {
                 $status = true;
+
                 continue;
             }
 
             if (! str_starts_with($arg, '--')) {
                 $positionals[] = $arg;
+
                 continue;
             }
 

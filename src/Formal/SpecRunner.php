@@ -33,6 +33,7 @@ final class SpecRunner implements FormalBridge
         'lean' => 'lean',
     ];
 
+    /** @param  array<string, mixed>  $config */
     public function __construct(
         private readonly string $root,
         private readonly array $config = [],
@@ -90,7 +91,7 @@ final class SpecRunner implements FormalBridge
             return ProbeResult::error('missing_tool', $verdict['message'], $duration);
         }
 
-        $relative = str_starts_with($file, sys_get_temp_dir()) ? $bridge.'.spec' : Paths::relative($this->root, $file);
+        $relative = $owned !== null ? $bridge.'.spec' : Paths::relative($this->root, $file);
 
         return new ProbeResult(
             status: 'failed',

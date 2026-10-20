@@ -52,9 +52,7 @@ final class DurationBook
 
         $all = $this->all();
         foreach ($times as $file => $ms) {
-            if (is_string($file)) {
-                $all[$file] = (int) $ms;
-            }
+            $all[$file] = (int) $ms;
         }
 
         file_put_contents(

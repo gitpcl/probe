@@ -13,7 +13,7 @@ final class JsonResultEncoderTest extends TestCase
 {
     public function test_green_result_stays_under_forty_tokens(): void
     {
-        $json = (new JsonResultEncoder())->encode(ProbeResult::passed(12));
+        $json = (new JsonResultEncoder)->encode(ProbeResult::passed(12));
 
         $this->assertSame('{"status":"passed","duration_ms":12,"failures":[]}', $json);
         $this->assertLessThanOrEqual(40, (int) ceil(strlen($json) / 4));
@@ -23,7 +23,7 @@ final class JsonResultEncoderTest extends TestCase
 
     public function test_scalar_values_are_included_and_null_is_omitted(): void
     {
-        $encoder = new JsonResultEncoder();
+        $encoder = new JsonResultEncoder;
 
         $this->assertSame(
             '{"status":"passed","duration_ms":1,"failures":[],"value":0}',
@@ -50,7 +50,7 @@ final class JsonResultEncoderTest extends TestCase
             trace: '#0 probe.php(4): explode()',
         ));
 
-        $encoder = new JsonResultEncoder();
+        $encoder = new JsonResultEncoder;
         $compact = $encoder->compact($result);
         $detailed = $encoder->detailed($result);
 
@@ -66,7 +66,7 @@ final class JsonResultEncoderTest extends TestCase
 
     public function test_unsupported_tool_names_its_phase(): void
     {
-        $json = (new JsonResultEncoder())->encode(ProbeResult::unsupported('run_affected', 2));
+        $json = (new JsonResultEncoder)->encode(ProbeResult::unsupported('run_affected', 2));
 
         $this->assertSame(
             '{"status":"unsupported","duration_ms":0,"failures":[],"tool":"run_affected","phase":2}',

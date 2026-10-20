@@ -20,7 +20,7 @@ final class JunitReport
             return $empty;
         }
 
-        $document = new DOMDocument();
+        $document = new DOMDocument;
         if (@$document->loadXML($xml) === false) {
             return $empty;
         }
@@ -30,10 +30,6 @@ final class JunitReport
         $tests = 0;
 
         foreach ($document->getElementsByTagName('testcase') as $case) {
-            if (! $case instanceof DOMElement) {
-                continue;
-            }
-
             $tests++;
             $name = $case->getAttribute('classname');
             if ($name === '') {

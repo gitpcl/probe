@@ -13,7 +13,7 @@ final class DatabaseGuardTest extends TestCase
 {
     public function test_worker_default_connection_is_sqlite_memory(): void
     {
-        $guard = new DatabaseGuard();
+        $guard = new DatabaseGuard;
 
         $this->assertSame('sqlite_memory', $guard->boot($this->app));
         $this->assertSame('probe', config('database.default'));
@@ -22,7 +22,7 @@ final class DatabaseGuardTest extends TestCase
 
     public function test_probe_sees_its_write_and_then_rolls_it_back(): void
     {
-        $guard = new DatabaseGuard();
+        $guard = new DatabaseGuard;
         $guard->boot($this->app);
 
         Schema::create('notes', function ($table): void {
@@ -41,7 +41,7 @@ final class DatabaseGuardTest extends TestCase
     public function test_host_mode_leaves_the_configured_connection(): void
     {
         config(['probe.database' => 'host']);
-        $guard = new DatabaseGuard();
+        $guard = new DatabaseGuard;
 
         $this->assertSame('host', $guard->boot($this->app));
         $this->assertSame('sqlite', config('database.default'));

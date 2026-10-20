@@ -112,7 +112,7 @@ final class DependencyGraph
         $out = [];
 
         foreach ($paths as $path) {
-            if (! is_string($path) || trim($path) === '') {
+            if (trim($path) === '') {
                 continue;
             }
 
@@ -127,7 +127,7 @@ final class DependencyGraph
     /** @return list<string> */
     private function testFiles(): array
     {
-        $directory = $this->root.'/tests';
+        $directory = (realpath($this->root) ?: $this->root).'/tests';
         if (! is_dir($directory)) {
             return [];
         }
@@ -201,6 +201,6 @@ final class DependencyGraph
         $prefix = rtrim($root, '/').'/';
         $relative = str_starts_with($path, $prefix) ? substr($path, strlen($prefix)) : $path;
 
-        return explode('/', $relative)[0] ?? '';
+        return explode('/', $relative)[0];
     }
 }

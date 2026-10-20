@@ -50,7 +50,7 @@ final class Toolbox
         $this->affected = new AffectedRunner(
             $root,
             $graph,
-            new ShardPlanner(),
+            new ShardPlanner,
             new DurationBook($home.'/durations.json'),
             $workers,
             is_string($runner) && $runner !== '' ? $runner : null,
@@ -82,7 +82,7 @@ final class Toolbox
             $graph,
             $this->affected,
             $snippets,
-            new HeuristicSelector(),
+            new HeuristicSelector,
             new LlmSelector(
                 (bool) ($intelligence['llm'] ?? false),
                 isset($intelligence['endpoint']) && is_string($intelligence['endpoint']) ? $intelligence['endpoint'] : null,

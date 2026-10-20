@@ -43,7 +43,7 @@ final class Probe
     public static function runAffected(array $paths = []): ProbeResult
     {
         return app(Pool::class)->runTool(base_path(), 'run_affected', [
-            'paths' => array_values($paths),
+            'paths' => $paths,
         ]);
     }
 
@@ -90,7 +90,7 @@ final class Probe
     public static function auto(array $paths = []): ProbeResult
     {
         return app(Pool::class)->runTool(base_path(), 'auto_probe', [
-            'paths' => array_values($paths),
+            'paths' => $paths,
         ]);
     }
 }

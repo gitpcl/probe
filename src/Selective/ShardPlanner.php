@@ -17,7 +17,6 @@ final class ShardPlanner
      */
     public function plan(array $files, array $durations, int $workers): array
     {
-        $files = array_values($files);
         if ($files === []) {
             return [];
         }

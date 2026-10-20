@@ -16,6 +16,7 @@ use Probe\Support\Stats;
  */
 final class HybridBrowser implements BrowserProbe
 {
+    /** @param  array<string, mixed>  $config */
     public function __construct(
         private readonly array $config = [],
         private readonly string $root = '',

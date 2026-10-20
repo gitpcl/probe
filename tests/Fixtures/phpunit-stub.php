@@ -9,10 +9,11 @@ $files = [];
 foreach ($argv as $index => $arg) {
     if ($arg === '--log-junit') {
         $junit = $argv[$index + 1] ?? null;
+
         continue;
     }
 
-    if (is_string($arg) && str_ends_with($arg, '.php') && ! str_contains($arg, 'phpunit-stub.php')) {
+    if (str_ends_with($arg, '.php') && ! str_contains($arg, 'phpunit-stub.php')) {
         $files[] = $arg;
     }
 }

@@ -92,13 +92,13 @@ final class ProbeResult
     /** @return array<string, mixed> */
     public function toArray(bool $detailed = false): array
     {
-        $encoder = new JsonResultEncoder();
+        $encoder = new JsonResultEncoder;
 
         return $detailed ? $encoder->detailed($this) : $encoder->compact($this);
     }
 
     public function toJson(bool $detailed = false): string
     {
-        return (new JsonResultEncoder())->encode($this, $detailed);
+        return (new JsonResultEncoder)->encode($this, $detailed);
     }
 }

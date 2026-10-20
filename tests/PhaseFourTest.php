@@ -62,4 +62,103 @@ final class PhaseFourTest extends TestCase
         $this->assertArrayNotHasKey('trace', $failed->toArray()['failures'][0]);
         $this->assertStringContainsString('User.email = none', $failed->toArray(true)['failures'][0]['trace']);
     }
+
+    public function test_verdicts_pass_on_exit_zero_for_every_bridge(): void
+    {
+        foreach (['alloy', 'tla', 'dafny', 'lean'] as $bridge) {
+            $verdict = Verdict::interpret($bridge, 0, "ok\n", '');
+            $this->assertSame('passed', $verdict['status'], $bridge);
+            $this->assertSame('', $verdict['trace'], $bridge);
+        }
+    }
+
+    public function test_spec_runner_validates_the_bridge_and_the_file_before_running(): void
+    {
+        $root = $this->root();
+        file_put_contents($root.'/specs/notes.txt', "not a spec\n");
+        $outside = sys_get_temp_dir().'/probe-outside-'.bin2hex(random_bytes(4)).'.als';
+        file_put_contents($outside, "sig User {}\n");
+        $runner = new SpecRunner($root, ['formal' => ['alloy' => $this->stub()]]);
+
+        $this->assertSame('bridge', $runner->run([])->failures[0]->id);
+        $this->assertSame('bridge', $runner->run(['file' => 'specs/notes.txt'])->failures[0]->id);
+        $unknown = $runner->run(['bridge' => 'nope', 'file' => 'specs/notes.txt']);
+        $this->assertSame('bridge', $unknown->failures[0]->id);
+        $this->assertSame('unknown bridge nope', $unknown->failures[0]->message);
+        $this->assertSame('file', $runner->run(['bridge' => 'alloy'])->failures[0]->id);
+        $this->assertSame('file', $runner->run(['file' => $outside])->failures[0]->id);
+    }
+
+    public function test_spec_runner_picks_the_bridge_from_the_extension_or_an_alias(): void
+    {
+        $root = $this->root();
+        $stub = $this->stub();
+        $runner = new SpecRunner($root, ['formal' => ['tla' => $stub, 'dafny' => $stub, 'lean' => $stub]]);
+
+        putenv('PROBE_FORMAL_STUB=pass');
+        try {
+            foreach (['tla' => 'tla', 'dfy' => 'dafny', 'lean' => 'lean'] as $extension => $bridge) {
+                file_put_contents($root.'/specs/spec.'.$extension, "spec\n");
+                $result = $runner->run(['file' => 'specs/spec.'.$extension]);
+                $this->assertSame('passed', $result->status, $result->toJson());
+                $this->assertSame($bridge, $result->value['bridge']);
+            }
+
+            $alias = $runner->run(['bridge' => 'TLA+', 'file' => 'specs/spec.tla']);
+            $this->assertSame('passed', $alias->status, $alias->toJson());
+            $this->assertSame('tla', $alias->value['bridge']);
+        } finally {
+            putenv('PROBE_FORMAL_STUB');
+        }
+    }
+
+    public function test_an_inline_spec_runs_from_a_temp_file_that_is_removed_afterwards(): void
+    {
+        $runner = new SpecRunner($this->root(), ['formal' => ['tla' => $this->stub()]]);
+        $before = glob(sys_get_temp_dir().'/probe-spec-*') ?: [];
+
+        putenv('PROBE_FORMAL_STUB=tla');
+        try {
+            $result = $runner->run(['bridge' => 'tla', 'code' => "---- MODULE Spec ----\n====\n"]);
+        } finally {
+            putenv('PROBE_FORMAL_STUB');
+        }
+
+        $this->assertSame('failed', $result->status, $result->toJson());
+        $this->assertSame('tla', $result->failures[0]->type);
+        $this->assertSame('tla.spec', $result->failures[0]->file);
+        $this->assertSame('Invariant Inv is violated', $result->failures[0]->message);
+        $this->assertSame($before, glob(sys_get_temp_dir().'/probe-spec-*') ?: []);
+    }
+
+    public function test_a_prover_that_hangs_is_a_timeout_error(): void
+    {
+        $root = $this->root();
+        file_put_contents($root.'/specs/auth.als', "sig User {}\n");
+        $runner = new SpecRunner($root, ['formal' => ['alloy' => $this->stub(), 'timeout_ms' => 200]]);
+
+        putenv('PROBE_FORMAL_STUB=hang');
+        try {
+            $result = $runner->run(['file' => 'specs/auth.als']);
+        } finally {
+            putenv('PROBE_FORMAL_STUB');
+        }
+
+        $this->assertSame('error', $result->status, $result->toJson());
+        $this->assertSame('timeout', $result->failures[0]->id);
+        $this->assertLessThan(3000, $result->durationMs);
+    }
+
+    private function root(): string
+    {
+        $root = sys_get_temp_dir().'/probe-formal-'.bin2hex(random_bytes(4));
+        mkdir($root.'/specs', 0775, true);
+
+        return $root;
+    }
+
+    private function stub(): string
+    {
+        return dirname(__DIR__).'/tests/Fixtures/formal-stub.php';
+    }
 }

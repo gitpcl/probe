@@ -33,7 +33,7 @@ final class HeuristicSelector implements Selector
 
         $changed = [];
         foreach ($paths as $path) {
-            if (is_string($path) && $path !== '') {
+            if ($path !== '') {
                 $changed[basename($path)] = true;
             }
         }

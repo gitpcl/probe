@@ -231,7 +231,7 @@ final class AffectedRunner implements SelectiveRunner
             $parsed['status'] = 'error';
         } elseif ($parsed['failures'] !== []) {
             $parsed['status'] = 'failed';
-        } elseif (($status['exitcode'] ?? 0) !== 0 && $parsed['tests'] === 0) {
+        } elseif ($status['exitcode'] !== 0 && $parsed['tests'] === 0) {
             $parsed['failures'][] = [
                 'id' => '1',
                 'message' => $errorText !== '' ? $errorText : 'test runner exited '.$status['exitcode'],
@@ -278,6 +278,7 @@ final class AffectedRunner implements SelectiveRunner
 
             if (! is_resource($process)) {
                 @unlink($junit);
+
                 continue;
             }
 
@@ -330,7 +331,7 @@ final class AffectedRunner implements SelectiveRunner
                 $parsed['status'] = 'error';
             } elseif ($parsed['failures'] !== []) {
                 $parsed['status'] = 'failed';
-            } elseif (($status['exitcode'] ?? 0) !== 0 && $parsed['tests'] === 0) {
+            } elseif ($status['exitcode'] !== 0 && $parsed['tests'] === 0) {
                 $parsed['failures'][] = [
                     'id' => '1',
                     'message' => $errorText !== '' ? $errorText : 'test runner exited '.$status['exitcode'],

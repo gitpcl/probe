@@ -6,6 +6,4 @@ namespace Probe\Runner;
 
 use RuntimeException;
 
-final class ProbeTimeoutException extends RuntimeException
-{
-}
+final class ProbeTimeoutException extends RuntimeException {}

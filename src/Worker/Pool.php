@@ -19,8 +19,8 @@ final class Pool
     private const CLIENT_GRACE_MS = 1500;
 
     public function __construct(
-        private readonly Client $client = new Client(),
-        private readonly Registry $registry = new Registry(),
+        private readonly Client $client = new Client,
+        private readonly Registry $registry = new Registry,
     ) {}
 
     public function runCode(string $root, string $code, ?int $timeoutMs = null): ProbeResult

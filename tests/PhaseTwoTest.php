@@ -30,7 +30,7 @@ final class PhaseTwoTest extends TestCase
 
     public function test_shard_planner_packs_long_files_apart(): void
     {
-        $plan = (new ShardPlanner())->plan(
+        $plan = (new ShardPlanner)->plan(
             ['a.php', 'b.php', 'c.php'],
             ['a.php' => 100, 'b.php' => 40, 'c.php' => 30],
             2,
@@ -137,7 +137,7 @@ XML);
         $runner = new AffectedRunner(
             $root,
             new DependencyGraph($root),
-            new ShardPlanner(),
+            new ShardPlanner,
             new DurationBook($root.'/durations.json'),
             1,
             $root.'/missing-phpunit',
@@ -218,7 +218,7 @@ XML);
         return new AffectedRunner(
             $root,
             new DependencyGraph($root),
-            new ShardPlanner(),
+            new ShardPlanner,
             new DurationBook($root.'/durations.json'),
             $workers,
             dirname(__DIR__).'/tests/Fixtures/phpunit-stub.php',

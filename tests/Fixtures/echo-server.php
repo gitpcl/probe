@@ -12,7 +12,7 @@ if ($socket === '') {
     exit(1);
 }
 
-$server = new Server();
+$server = new Server;
 $server->listen($socket, function (array $request) use ($server): array {
     if (($request['tool'] ?? '') === 'shutdown') {
         $server->stop();

@@ -18,9 +18,9 @@ final class EchoServerTest extends TestCase
     {
         if (is_resource($this->process)) {
             $status = proc_get_status($this->process);
-            if (($status['running'] ?? false) === true && file_exists($this->socket)) {
+            if ($status['running'] === true && file_exists($this->socket)) {
                 try {
-                    (new Client())->requestLine($this->socket, ['tool' => 'shutdown'], 1);
+                    (new Client)->requestLine($this->socket, ['tool' => 'shutdown'], 1);
                 } catch (\Throwable) {
                     // The process is stopped below.
                 }
@@ -59,7 +59,7 @@ final class EchoServerTest extends TestCase
             usleep(10_000);
         }
 
-        $client = new Client();
+        $client = new Client;
         $first = json_decode($client->requestLine($this->socket, ['tool' => 'probe', 'code' => 'one'], 2), true, 512, JSON_THROW_ON_ERROR);
         $second = json_decode($client->requestLine($this->socket, ['tool' => 'probe', 'code' => 'two'], 2), true, 512, JSON_THROW_ON_ERROR);
 
@@ -73,12 +73,12 @@ final class EchoServerTest extends TestCase
         $deadline = microtime(true) + 3;
         do {
             $status = proc_get_status($this->process);
-            if (($status['running'] ?? true) === false) {
+            if ($status['running'] === false) {
                 break;
             }
             usleep(20_000);
         } while (microtime(true) < $deadline);
 
-        $this->assertFalse($status['running'] ?? true);
+        $this->assertFalse($status['running']);
     }
 }

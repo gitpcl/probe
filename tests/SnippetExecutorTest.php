@@ -7,6 +7,8 @@ namespace Probe\Tests;
 use PHPUnit\Framework\TestCase;
 use Probe\Probe;
 use Probe\Result\Failure;
+use Probe\Runner\DatabaseGuard;
+use Probe\Runner\SnippetRunner;
 use RuntimeException;
 
 final class SnippetExecutorTest extends TestCase
@@ -43,5 +45,35 @@ final class SnippetExecutorTest extends TestCase
         $this->assertSame(1, $failure->line);
         $this->assertSame('say "hi"', $failure->message);
         $this->assertSame(['id' => '1', 'message' => 'say "hi"'], $failure->compact());
+    }
+
+    public function test_a_probe_leaves_the_alarm_handler_as_it_found_it(): void
+    {
+        if (! function_exists('pcntl_signal_get_handler')) {
+            $this->markTestSkipped('pcntl is not loaded');
+        }
+
+        $before = pcntl_signal_get_handler(SIGALRM);
+
+        $result = (new SnippetRunner(new DatabaseGuard))->run('return 1;');
+
+        $this->assertSame('passed', $result->status, $result->toJson());
+        $this->assertSame($before, pcntl_signal_get_handler(SIGALRM));
+    }
+
+    public function test_a_probe_leaves_the_error_handler_as_it_found_it(): void
+    {
+        $sentinel = static fn (): bool => false;
+        set_error_handler($sentinel);
+
+        try {
+            (new SnippetRunner(new DatabaseGuard))->run('return 1;');
+            $active = set_error_handler(null);
+            restore_error_handler();
+
+            $this->assertSame($sentinel, $active);
+        } finally {
+            restore_error_handler();
+        }
     }
 }

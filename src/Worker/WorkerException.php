@@ -6,6 +6,4 @@ namespace Probe\Worker;
 
 use RuntimeException;
 
-class WorkerException extends RuntimeException
-{
-}
+class WorkerException extends RuntimeException {}

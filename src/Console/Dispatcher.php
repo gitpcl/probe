@@ -21,7 +21,7 @@ final class Dispatcher
     /** @var callable(string): void */
     private $writer;
 
-    public function __construct(private readonly Pool $pool = new Pool())
+    public function __construct(private readonly Pool $pool = new Pool)
     {
         $this->writer = static function (string $json): void {
             fwrite(STDOUT, $json);
@@ -31,7 +31,7 @@ final class Dispatcher
     /** @param  list<string>  $argv */
     public static function main(array $argv): int
     {
-        return (new self())->run(Argv::parse($argv));
+        return (new self)->run(Argv::parse($argv));
     }
 
     /** @param  callable(string): void|null  $writer */

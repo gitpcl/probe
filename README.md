@@ -13,7 +13,7 @@ composer require gitpcl/probe --dev
 php artisan probe:install
 ```
 
-PHP 8.2 or newer. Laravel 11 or 12. `probe:install` publishes `config/probe.php` and creates the worker directory.
+PHP 8.2 or newer. Laravel 12 or 13 (Laravel 13 needs PHP 8.3 or newer). `probe:install` publishes `config/probe.php` and creates the worker directory.
 
 The agent entrypoint is `vendor/bin/probe`. It does not boot Laravel in the client. `php artisan probe` runs the same tools after a normal Artisan boot, so it is the slower path.
 
@@ -248,6 +248,17 @@ Probe executes arbitrary PHP inside the application. It is a local dev dependenc
 Shipped: warm workers, compact JSON, Lightpanda/Playwright browser probes, affected-test selection with duration sharding, scoped mutation, property checks, architecture rules, Alloy/TLA+/Dafny/Lean bridges, and heuristic auto-probes.
 
 Still local-only: Unix sockets (no Windows), MCP as a separate wrapper, and a live model call only when `PROBE_LLM` is set. External binaries are detected at runtime and degrade to `missing_tool`.
+
+## Development
+
+```bash
+composer test      # PHPUnit
+composer lint      # Pint, check only
+composer analyse   # PHPStan, level 6
+composer check     # all three
+```
+
+CI runs the suite on PHP 8.2, 8.3 and 8.4 against Laravel 12 and 13, plus Pint and PHPStan on PHP 8.4. Format a file you changed with `vendor/bin/pint <path>`.
 
 ## License
 

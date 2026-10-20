@@ -12,6 +12,9 @@ use Throwable;
 
 final class SnippetRunner
 {
+    /** @var callable|int|null The SIGALRM handler that was active before the current probe armed its timeout. */
+    private mixed $previousAlarmHandler = null;
+
     public function __construct(
         private readonly DatabaseGuard $database,
         private readonly int $maxValueBytes = 1024,
@@ -25,7 +28,7 @@ final class SnippetRunner
         $level = ob_get_level();
         ob_start();
         $this->armTimeout($timeoutMs);
-        $previous = $this->pushErrorHandler();
+        $this->pushErrorHandler();
 
         try {
             $normalized = $this->database->isolate(function () use ($code): array {
@@ -40,9 +43,7 @@ final class SnippetRunner
             );
         } finally {
             $this->disarmTimeout();
-            if ($previous !== null) {
-                restore_error_handler();
-            }
+            restore_error_handler();
             while (ob_get_level() > $level) {
                 ob_end_clean();
             }
@@ -106,7 +107,7 @@ final class SnippetRunner
         return [json_decode($json, true), true];
     }
 
-    private function pushErrorHandler(): bool
+    private function pushErrorHandler(): void
     {
         set_error_handler(static function (int $severity, string $message, string $file, int $line): bool {
             $convert = E_WARNING | E_USER_WARNING | E_RECOVERABLE_ERROR | E_USER_ERROR;
@@ -116,8 +117,6 @@ final class SnippetRunner
 
             throw new ErrorException($message, 0, $severity, $file, $line);
         });
-
-        return true;
     }
 
     private function armTimeout(int $timeoutMs): void
@@ -126,6 +125,7 @@ final class SnippetRunner
             return;
         }
 
+        $this->previousAlarmHandler = pcntl_signal_get_handler(SIGALRM);
         pcntl_async_signals(true);
         pcntl_signal(SIGALRM, static function (): void {
             throw new ProbeTimeoutException('probe timed out');
@@ -137,6 +137,11 @@ final class SnippetRunner
     {
         if (function_exists('pcntl_alarm')) {
             pcntl_alarm(0);
+        }
+
+        if ($this->previousAlarmHandler !== null && function_exists('pcntl_signal')) {
+            pcntl_signal(SIGALRM, $this->previousAlarmHandler);
+            $this->previousAlarmHandler = null;
         }
     }
 }

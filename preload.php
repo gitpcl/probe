@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+use Probe\Support\Preloader;
 
 /**
  * OPcache preload entry for SAPIs that honor opcache.preload.
@@ -16,7 +17,6 @@ declare(strict_types=1);
  *   opcache.preload=/absolute/path/vendor/gitpcl/probe/preload.php
  *   opcache.preload_user=www-data
  */
-
 $autoload = dirname(__DIR__, 2).'/autoload.php';
 if (! is_file($autoload)) {
     $autoload = __DIR__.'/vendor/autoload.php';
@@ -26,6 +26,6 @@ if (is_file($autoload)) {
     require_once $autoload;
 }
 
-if (class_exists(Probe\Support\Preloader::class) && function_exists('opcache_compile_file')) {
-    (new Probe\Support\Preloader())->warm();
+if (class_exists(Preloader::class) && function_exists('opcache_compile_file')) {
+    (new Preloader)->warm();
 }

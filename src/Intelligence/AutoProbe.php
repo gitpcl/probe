@@ -108,7 +108,7 @@ final class AutoProbe
     /** @param  list<string>  $classes */
     public function smokeSnippet(array $classes): string
     {
-        $exported = var_export(array_values($classes), true);
+        $exported = var_export($classes, true);
 
         return <<<PHP
 \$missing = [];

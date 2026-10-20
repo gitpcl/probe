@@ -18,7 +18,7 @@ final class WorkerPoolTest extends TestCase
     protected function setUp(): void
     {
         $this->root = dirname(__DIR__).'/tests/Fixtures/app';
-        $this->pool = new Pool();
+        $this->pool = new Pool;
         $this->pool->stop($this->root);
     }
 

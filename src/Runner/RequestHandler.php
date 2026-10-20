@@ -99,7 +99,7 @@ final class RequestHandler
         $session = $this->session->get();
         $rows = is_array($session['failures'] ?? null) ? $session['failures'] : [];
 
-        if (isset($request['id']) && $request['id'] !== null && $request['id'] !== '') {
+        if (isset($request['id']) && $request['id'] !== '') {
             $id = (string) $request['id'];
             $rows = array_values(array_filter(
                 $rows,

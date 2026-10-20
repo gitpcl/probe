@@ -117,7 +117,7 @@ final class ArchitectureCheck implements QualityCheck
     {
         $files = [];
         foreach ($this->paths as $relative) {
-            $directory = $this->root.'/'.ltrim($relative, '/');
+            $directory = (realpath($this->root) ?: $this->root).'/'.ltrim($relative, '/');
             if (! is_dir($directory)) {
                 continue;
             }

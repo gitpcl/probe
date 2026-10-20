@@ -58,7 +58,7 @@ final class RequestHandlerTest extends TestCase
             'browser' => ['engine' => 'auto', 'lightpanda' => 'lightpanda-not-installed', 'playwright' => 'playwright-not-installed'],
             'formal' => ['alloy' => '/no/such/alloy'],
             'intelligence' => ['llm' => false],
-        ], new SnippetRunner(new DatabaseGuard()), $this->home()));
+        ], new SnippetRunner(new DatabaseGuard), $this->home()));
 
         $affected = $handler->handle(['tool' => 'run_affected']);
         $this->assertSame('error', $affected['status']);
@@ -94,13 +94,13 @@ final class RequestHandlerTest extends TestCase
 
     private function handler(?Toolbox $toolbox = null): RequestHandler
     {
-        $database = new DatabaseGuard();
+        $database = new DatabaseGuard;
         $database->boot($this->app);
 
         return new RequestHandler(
             new SnippetRunner($database, 1024, 5000),
             new SessionStore($this->home().'/session.json'),
-            new JsonResultEncoder(),
+            new JsonResultEncoder,
             $database,
             100000,
             500,

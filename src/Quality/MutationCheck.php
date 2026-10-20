@@ -19,7 +19,7 @@ final class MutationCheck implements QualityCheck
         private readonly string $root,
         private readonly AffectedRunner $runner,
         private readonly DependencyGraph $graph,
-        private readonly Mutator $mutator = new Mutator(),
+        private readonly Mutator $mutator = new Mutator,
         private readonly int $limit = 8,
     ) {}
 

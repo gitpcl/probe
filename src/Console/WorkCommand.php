@@ -66,7 +66,7 @@ final class WorkCommand extends Command
 
         $handler = HandlerFactory::make($this->laravel, $home);
 
-        $registry = new Registry();
+        $registry = new Registry;
         $meta = array_filter([
             'index' => $index,
             'pid' => getmypid(),

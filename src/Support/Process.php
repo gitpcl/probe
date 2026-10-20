@@ -82,7 +82,7 @@ final class Process
         fclose($pipes[1]);
         fclose($pipes[2]);
         proc_close($process);
-        $exit = (int) ($status['exitcode'] ?? 0);
+        $exit = $status['exitcode'];
 
         return [
             'exit' => $exit,

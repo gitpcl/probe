@@ -5,6 +5,12 @@ declare(strict_types=1);
 
 $mode = getenv('PROBE_FORMAL_STUB') ?: 'pass';
 
+if ($mode === 'hang') {
+    sleep(3);
+    fwrite(STDOUT, "No counterexample found.\n");
+    exit(0);
+}
+
 if ($mode === 'counter') {
     fwrite(STDOUT, "Counterexample found. Instance:\nUser.email = none\n");
     exit(1);
