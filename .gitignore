@@ -4,3 +4,4 @@
 .phpunit.result.cache
 /build/
 /tests/Fixtures/app/storage/
+/phpstan.neon
