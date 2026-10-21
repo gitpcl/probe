@@ -29,7 +29,7 @@ vendor/bin/probe 'return 1 + 1;'
 
 `duration_ms` varies. A green probe with no return value is only status, duration, and an empty `failures` array.
 
-`vendor/bin/probe` is a shell script. A bare snippet (one argument, no flags) goes straight to the live worker over `nc` in about 9 ms, without starting PHP on the client side. Everything else, and any miss (no worker yet, an `nc` without Unix-socket support, a changed source file), runs the PHP client in `bin/probe.php`, which also supervises the worker. `--benchmark` reports both as `shell_median_ms` and `process_median_ms`.
+`vendor/bin/probe` is a shell script. A bare snippet (one argument, no flags) goes straight to the live worker over `nc` in about 10 ms, without starting PHP on the client side; Composer's generated proxy in `vendor/bin` adds about 8 ms on top, so an agent that wants the floor calls `vendor/gitpcl/probe/bin/probe`. Everything else, and any miss (no worker yet, an `nc` without Unix-socket support, a changed source file), runs the PHP client in `bin/probe.php`, which also supervises the worker. `--benchmark` reports both as `shell_median_ms` and `process_median_ms`.
 
 ```bash
 vendor/bin/probe 'use App\Models\User; return User::query()->count();'
@@ -158,7 +158,7 @@ On the SQLite used here, `Schema::create` inside a probe rolls back with the tra
 
 Engines: Lightpanda (`lightpanda fetch --dump html <url>`) or Playwright through `resources/playwright-probe.mjs`, which needs Node and the `playwright` npm package installed in the app (`npm install -D playwright`); the package is resolved from the project root. `engine: auto` uses the persistent Playwright browser when Node and the package exist, then Lightpanda on `PATH`, then the one-shot Playwright script. Set `PROBE_BROWSER=playwright` to force Playwright, or `PROBE_LIGHTPANDA` / `PROBE_PLAYWRIGHT` to an absolute binary or script. Steps always go to Playwright. Lightpanda does not report the HTTP status, so `--http-status` on it returns `status: unsupported`. If neither engine exists, the result is `status: error` with `id: missing_tool` and a message naming what is missing.
 
-With Node and the `playwright` package in the app, one browser stays alive next to the worker (`browser.persistent`, default true): the first call launches it (about 300 ms), later calls open a fresh context in that browser (about 50 ms in the worker, 90 ms wall through the shell entry); `value.persistent` and `value.pid` say so, on errors too. Each probe gets its own context, closed when it ends, so a page that timed out on a selector cannot leak into the next call and the browser stays up; the process is replaced only when it dies or stops answering. `PROBE_BROWSER_PERSISTENT=false` goes back to one process per call, which is what Lightpanda always is (about 300 ms, almost all of it launch). The client waits for `browser.timeout_ms` (default 8 s) before giving up.
+With Node and the `playwright` package in the app, one browser stays alive next to the worker (`browser.persistent`, default true): the first call launches it (300 to 600 ms, measured), later calls open a fresh context in that browser (about 55 ms in the worker, about 100 ms wall through the shell entry); `value.persistent` and `value.pid` say so, on errors too. Each probe gets its own context, closed when it ends, so a page that timed out on a selector cannot leak into the next call and the browser stays up; the process is replaced only when it dies or stops answering. `PROBE_BROWSER_PERSISTENT=false` goes back to one process per call, which is what Lightpanda always is (about 300 ms, almost all of it launch). The client waits for `browser.timeout_ms` (default 8 s) before giving up.
 
 URLs must be `http` or `https`. A path such as `/login` is joined to `PROBE_BASE_URL` or `APP_URL`. `--contains` and `--absent` are exact substring checks. A green browser result is `failures: []` plus `value.engine`.
 
@@ -239,20 +239,39 @@ Measured on this package's Testbench fixture (Laravel 12 application skeleton, P
 
 ### A real application
 
-A production Laravel application (Laravel 12.56, 125 Pest tests, PHP 8.4.25, Apple silicon with 12 performance and 4 efficiency cores). Medians of 10 to 20 runs; "before" is 0.6.0 as measured by an independent session, "after" is 0.7.0.
+A production Laravel application (Laravel 12.56, 125 Pest tests, PHP 8.4.25, Apple silicon with 12 performance and 4 efficiency cores), measured on 2026-10-21 by a session independent of the one that wrote the code, through the Composer-installed proxies. Medians, run count in the last column; wall times include the measuring script's own 5 ms. The 0.6.0 baseline from the same machine: 38 ms per probe through the PHP client, 1938 ms for the suite in one Pest process, about 300 ms per browser call.
 
-| Path | Before | After | Next best alternative |
+One check, `Setting::count()` on a fresh in-memory database:
+
+| How | Median | Runs |
+| --- | --- | --- |
+| Probe over MCP, session already open | 2.5 ms (p95 4.0) | 10 |
+| Probe shell entry, `vendor/bin/probe` bare snippet | 25 ms | 10 |
+| Probe PHP client, `--tool=probe` | 48 ms | 10 |
+| PHPUnit, one test with `RefreshDatabase` | 128 ms | 5 |
+| Pest, one test with `RefreshDatabase` | 157 ms | 5 |
+
+Pest and PHPUnit pay PHP startup, Composer autoload, the Laravel boot and the migration on every run. Probe pays that once at worker boot (135 to 260 ms across tonight's cold starts). Composer's generated `vendor/bin/probe` proxy adds about 8 ms (`realpath` and two subshells before the exec): the script itself, `vendor/gitpcl/probe/bin/probe`, answered in 17 ms through the same timer, and `--benchmark` times that script, not the proxy. An agent that calls the package script directly gets the lower number.
+
+Whole suite, 125 tests and 0 failures on every run:
+
+| How | Median | Range | Runs |
 | --- | --- | --- | --- |
-| Bare snippet, PHP client (`process_median_ms`) | 38 ms | 33 ms | `php -r 'echo 1;'` alone is 28 ms |
-| Bare snippet, shell entry (`shell_median_ms`) | | 10 ms | |
-| Snippet through the MCP server, per call | | 1.6 ms | |
-| One database check (`Setting::count()` in the booted app) | 39 ms | 10 ms shell, 1.6 ms MCP | One Pest feature test with `RefreshDatabase`: 143 ms; PHPUnit: 128 ms |
-| Whole suite through `run_affected` | 1938 ms, one Pest process | 900 to 1100 ms, forked shards | `pest --parallel` 1460 to 1490 ms; `pest` 1880 ms |
-| One service change through `run_affected`, guard off | all 125 tests | 6 tests in 156 ms, found through the route hop | |
-| Cold start (worker boot plus migration) | 135 ms | unchanged | |
-| Browser check | about 300 ms per call, either engine | first call 291 ms, then 90 ms wall (50 ms inside the worker) in the kept browser | |
+| Probe `run_affected`, 16 forked shards | 993 ms | 980 to 1365 | 5 |
+| `pest --parallel` | 1570 ms | 1566 to 1708 | 5 |
+| `pest` | 2046 ms | 2021 to 2208 | 5 |
 
-The suite floor is its two slowest tests (737 and 756 ms); shard count, OPcache and a persistent test runner cannot move that, which is why the sharded suite sits around one second regardless of CPU count. Agent loops take the shell entry or the MCP server. `run_affected` shows what it selected and, when the guard says the whole suite is cheap, runs it in about the time of the slowest file.
+The 1365 is the first run after a cold worker. The floor is the two slowest test files at about 750 ms each: a shard is as slow as its slowest file, so shard count, OPcache and a persistent runner cannot push the suite much under one second here. PHPUnit has no row because this suite uses Pest's functions.
+
+Selection and browser:
+
+| Path | Result | Runs |
+| --- | --- | --- |
+| One service change through `run_affected`, guard off | 6 tests in 94 to 137 ms, the stability test found through the route hop | 2 |
+| Browser check, first call | 619 ms, 291 ms in an earlier run; the launch dominates and varies | 1 each |
+| Browser check, kept browser | 101 to 104 ms wall, 55 to 57 ms inside the worker, same pid | 4 |
+
+A probe is a throwaway check, not a test file that stays in the repo: the speed is for the agent's inner loop, and the suite still runs before a change is called safe. Agent loops take the MCP server or the shell entry. `run_affected` shows what it selected and, when the guard says the whole suite is cheap, runs it in about the time of the slowest file.
 
 ## Configuration
 
