@@ -5,4 +5,4 @@ parameters:
         - tests
     tmpDir: build/phpstan
     excludePaths:
-        - tests/Fixtures/app/storage
+        - tests/Fixtures/app/storage (?)
