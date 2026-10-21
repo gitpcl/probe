@@ -60,6 +60,79 @@ final class WorkerPoolTest extends TestCase
         );
     }
 
+    public function test_code_loaded_inside_a_probe_is_reloaded_after_an_edit(): void
+    {
+        $scratch = $this->root.'/ScratchInside.php';
+        $code = 'require_once '.var_export($scratch, true).'; return probe_scratch_inside();';
+        file_put_contents($scratch, "<?php\nfunction probe_scratch_inside(): string { return 'v1'; }\n");
+        touch($scratch, time() - 10);
+
+        try {
+            $first = $this->probe($code);
+            $this->assertSame('v1', $first['value'] ?? null, json_encode($first));
+
+            file_put_contents($scratch, "<?php\nfunction probe_scratch_inside(): string { return 'v2'; }\n");
+            touch($scratch, time() + 5);
+            $second = $this->probe($code);
+
+            $this->assertSame('passed', $second['status'], json_encode($second));
+            $this->assertSame('v2', $second['value']);
+        } finally {
+            @unlink($scratch);
+        }
+    }
+
+    public function test_code_loaded_at_boot_recycles_the_worker_after_an_edit(): void
+    {
+        $scratch = $this->root.'/ScratchBoot.php';
+        file_put_contents($scratch, "<?php\nfunction probe_scratch_boot(): string { return 'v1'; }\n");
+        touch($scratch, time() - 10);
+        putenv('PROBE_BOOT_INCLUDE='.$scratch);
+
+        try {
+            $first = $this->probe('return probe_scratch_boot();');
+            $this->assertSame('v1', $first['value'] ?? null, json_encode($first));
+
+            file_put_contents($scratch, "<?php\nfunction probe_scratch_boot(): string { return 'v2'; }\n");
+            touch($scratch, time() + 5);
+            $second = $this->probe('return probe_scratch_boot();');
+
+            $this->assertSame('passed', $second['status'], json_encode($second));
+            $this->assertSame('v2', $second['value']);
+            $this->assertStringEndsWith('ScratchBoot.php', $second['recycled']);
+        } finally {
+            putenv('PROBE_BOOT_INCLUDE');
+            $this->pool->stop($this->root);
+            @unlink($scratch);
+        }
+    }
+
+    public function test_a_probe_that_exits_does_not_take_the_worker_down(): void
+    {
+        if (! function_exists('pcntl_fork') || ! function_exists('posix_getppid')) {
+            $this->markTestSkipped('fork isolation needs pcntl and posix');
+        }
+
+        $before = $this->probe('return posix_getppid();');
+        $this->assertSame('passed', $before['status'], json_encode($before));
+
+        $exited = $this->probe('exit(3);');
+        $this->assertSame('failed', $exited['status'], json_encode($exited));
+        $this->assertSame('exit', $exited['failures'][0]['id']);
+
+        $after = $this->probe('return posix_getppid();');
+        $this->assertSame($before['value'], $after['value'], 'the worker outlived the exit');
+
+        $ping = json_decode($this->pool->dispatch($this->root, ['tool' => 'ping'], 10000), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('fork', $ping['isolation']);
+    }
+
+    /** @return array<string, mixed> */
+    private function probe(string $code): array
+    {
+        return json_decode($this->pool->dispatch($this->root, ['tool' => 'probe', 'code' => $code], 15000), true, 512, JSON_THROW_ON_ERROR);
+    }
+
     public function test_worker_uses_sqlite_memory_and_rolls_back_writes(): void
     {
         $created = json_decode($this->pool->dispatch($this->root, [

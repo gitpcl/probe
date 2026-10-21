@@ -40,6 +40,13 @@ return [
     */
     'isolate' => filter_var(env('PROBE_ISOLATE', true), FILTER_VALIDATE_BOOL),
 
+    /*
+    | Run each probe in a forked child so nothing it changes in the worker survives:
+    | config, fakes, Carbon::setTestNow, auth, a fatal error or exit(). Needs pcntl
+    | and posix; without them probes run inside the worker process.
+    */
+    'fork' => filter_var(env('PROBE_FORK', true), FILTER_VALIDATE_BOOL),
+
     'timeout_ms' => (int) env('PROBE_TIMEOUT_MS', 5000),
 
     'boot_timeout_seconds' => (int) env('PROBE_BOOT_TIMEOUT', 60),
@@ -84,11 +91,13 @@ return [
     /*
     | run_affected. runner is an optional Pest or PHPUnit binary.
     | workers null follows the warm pool size and is the shard count.
+    | full_suite_under_ms runs every test when the whole suite is estimated under it; 0 keeps graph selection only.
     */
     'selective' => [
         'runner' => env('PROBE_TEST_RUNNER'),
         'workers' => env('PROBE_SELECTIVE_WORKERS'),
         'timeout_ms' => (int) env('PROBE_SELECTIVE_TIMEOUT_MS', 120000),
+        'full_suite_under_ms' => (int) env('PROBE_FULL_SUITE_UNDER_MS', 15000),
     ],
 
     'mutate' => [

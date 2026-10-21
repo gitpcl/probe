@@ -80,6 +80,11 @@ final class Protocol
         $position = strpos($buffer, "\n");
         if ($position === false) {
             if ($buffer === '') {
+                $meta = stream_get_meta_data($stream);
+                if (! empty($meta['timed_out'])) {
+                    throw new WorkerTimeout('timed out reading from the Probe worker');
+                }
+
                 throw new WorkerException('worker closed the connection');
             }
 

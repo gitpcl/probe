@@ -70,7 +70,7 @@ Target latencies: 30–150 ms for PHP probes, sub-second for light browser probe
 - Warm PHP worker pool with OPcache + preload
 - Selective execution (TIA-style dependency graph)
 - Default SQLite :memory:
-- Hybrid browser: Lightpanda (default, 5–11× faster) / Playwright fallback
+- Hybrid browser: Lightpanda (default) / Playwright fallback; both about 300 ms per call on a small local page, almost all of it browser launch
 - Duration-aware sharding and parallel workers
 - Compact structured JSON output
 

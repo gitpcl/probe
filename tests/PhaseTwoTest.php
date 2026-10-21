@@ -84,6 +84,8 @@ XML);
 
         $this->assertSame('passed', $result->status, $result->toJson());
         $this->assertSame(1, $result->value['ran']);
+        $this->assertSame('affected', $result->value['selection']);
+        $this->assertSame(['tests/Feature/UserTest.php'], $result->value['selected']);
         $this->assertStringContainsString('UserTest.php', (string) file_get_contents($log));
         $this->assertStringNotContainsString('OrderTest.php', (string) file_get_contents($log));
     }
@@ -213,7 +215,68 @@ XML);
         $this->assertSame('playwright', $result->value['engine']);
     }
 
-    private function runner(string $root, int $workers): AffectedRunner
+    public function test_a_short_suite_runs_in_full(): void
+    {
+        $root = $this->tree([
+            'app/Models/User.php' => "<?php\nnamespace App\\Models;\nclass User {}\n",
+            'tests/Feature/UserTest.php' => "<?php\nclass UserTest {}\n",
+            'tests/Feature/OrderTest.php' => "<?php\nclass OrderTest {}\n",
+        ]);
+        $log = $root.'/ran.log';
+        putenv('PROBE_STUB_LOG='.$log);
+
+        try {
+            $result = $this->runner($root, 1, 15000)->run(['paths' => ['app/Models/User.php']]);
+        } finally {
+            putenv('PROBE_STUB_LOG');
+        }
+
+        $this->assertSame('passed', $result->status, $result->toJson());
+        $this->assertSame('all', $result->value['selection']);
+        $this->assertSame(['tests/Feature/OrderTest.php', 'tests/Feature/UserTest.php'], $result->value['selected']);
+        $this->assertStringContainsString('OrderTest.php', (string) file_get_contents($log));
+    }
+
+    public function test_a_long_suite_keeps_the_graph_selection(): void
+    {
+        $root = $this->tree([
+            'app/Models/User.php' => "<?php\nnamespace App\\Models;\nclass User {}\n",
+            'tests/Feature/UserTest.php' => "<?php\nclass UserTest {}\n",
+            'tests/Feature/OrderTest.php' => "<?php\nclass OrderTest {}\n",
+        ]);
+        $real = realpath($root) ?: $root;
+        file_put_contents($root.'/durations.json', json_encode([
+            $real.'/tests/Feature/UserTest.php' => 9000,
+            $real.'/tests/Feature/OrderTest.php' => 9000,
+        ]));
+
+        $result = $this->runner($root, 1, 15000)->run(['paths' => ['app/Models/User.php']]);
+
+        $this->assertSame('passed', $result->status, $result->toJson());
+        $this->assertSame('affected', $result->value['selection']);
+        $this->assertSame(['tests/Feature/UserTest.php'], $result->value['selected']);
+    }
+
+    public function test_a_status_assertion_is_unsupported_when_the_engine_cannot_report_one(): void
+    {
+        $browser = new HybridBrowser([
+            'browser' => [
+                'engine' => 'lightpanda',
+                'lightpanda' => dirname(__DIR__).'/tests/Fixtures/browser-dump.php',
+                'node' => 'node-not-installed',
+                'base_url' => 'http://example.test',
+                'timeout_ms' => 8000,
+            ],
+        ], '');
+
+        $result = $browser->check(['url' => 'http://example.test/nope', 'http_status' => 200]);
+
+        $this->assertSame('unsupported', $result->status, $result->toJson());
+        $this->assertSame('http_status', $result->failures[0]->id);
+        $this->assertSame('lightpanda', $result->value['engine']);
+    }
+
+    private function runner(string $root, int $workers, int $fullSuiteUnderMs = 0): AffectedRunner
     {
         return new AffectedRunner(
             $root,
@@ -222,6 +285,8 @@ XML);
             new DurationBook($root.'/durations.json'),
             $workers,
             dirname(__DIR__).'/tests/Fixtures/phpunit-stub.php',
+            120000,
+            $fullSuiteUnderMs,
         );
     }
 

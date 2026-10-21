@@ -92,6 +92,32 @@ final class Project
         return max(1, $fromEnv !== null ? (int) $fromEnv : 1);
     }
 
+    /**
+     * The longest a tool may run inside the worker. The client waits at least this
+     * long so a slow browser, test run or prover is not mistaken for a dead worker.
+     */
+    public static function toolTimeoutMs(string $root, string $tool): int
+    {
+        [$env, $key, $default] = match ($tool) {
+            'probe_browser' => ['PROBE_BROWSER_TIMEOUT_MS', 'probe.browser.timeout_ms', 8000],
+            'run_affected', 'rerun_failed', 'mutate_check', 'architecture_check', 'auto_probe' => ['PROBE_SELECTIVE_TIMEOUT_MS', 'probe.selective.timeout_ms', 120000],
+            'formal_check' => ['PROBE_FORMAL_TIMEOUT_MS', 'probe.formal.timeout_ms', 20000],
+            default => [null, null, 0],
+        };
+
+        if ($env === null || $key === null) {
+            return 0;
+        }
+
+        if (self::configForRoot($root)) {
+            return max(0, (int) config($key, $default));
+        }
+
+        $fromEnv = EnvFile::get($root, $env);
+
+        return max(0, $fromEnv !== null ? (int) $fromEnv : $default);
+    }
+
     public static function timeoutMs(string $root): int
     {
         if (self::configForRoot($root)) {

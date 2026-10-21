@@ -75,14 +75,14 @@ Passing output is a single JSON object. The green form is about a dozen tokens, 
 | `value` | Snippet return value, or a small payload such as `ran`, `engine`, `killed`, or `selector` |
 | `rerun` | `false` when `rerun_failed` had nothing to run |
 
-`get_failures` returns the same status plus `type`, `file`, `line`, and `trace` for the last probe. That is the progressive-detail hook. The compact probe path does not include the trace.
+`get_failures` returns the first failure of the last result in full (`type`, `file`, `line`, `trace`) plus `value.total`; `--id=N` opens another one. Traces leave out Probe's own frames. That is the progressive-detail hook. The compact probe path does not include the trace.
 
 ## Tools
 
 | Tool | Phase | Behavior |
 | --- | --- | --- |
 | `probe` | 1 | Run a snippet in the warm app |
-| `get_failures` | 1 | Detail for the last result |
+| `get_failures` | 1 | Detail for the first failure of the last result; `--id` picks another |
 | `rerun_failed` | 1 | Run the last failed probe or check again |
 | `probe_browser` | 2 | Fetch a page with Lightpanda, or Playwright when steps need it |
 | `run_affected` | 2 | Run the Pest or PHPUnit files impacted by the given paths |
@@ -112,7 +112,11 @@ Response:
 
 State lives in `storage/framework/probe/` (`active.json`, `session.json`, the socket). Override the location with `PROBE_HOME` and `PROBE_SOCKET` in `.env` so the thin client and Artisan agree. The supervisor lock stops two clients from booting two workers.
 
-The pool size is `PROBE_WORKERS` (default 1). Agent tools enter through worker 0 so the last result stays in one `session.json`. `run_affected` uses that same count as the number of PHPUnit shards. `Probe\Selective\ShardPlanner` packs files by the durations in `durations.json` (longest first). With one worker, or one file, there is a single shard. The supervisor restarts a worker that dies, and recycles it after `recycle_after` probes (default 500).
+The pool size is `PROBE_WORKERS` (default 1). Agent tools enter through worker 0 so the last result stays in one `session.json`: `PROBE_WORKERS` does not parallelize plain probes, it sets the number of PHPUnit shards for `run_affected`. `Probe\Selective\ShardPlanner` packs files by the durations in `durations.json` (longest first). With one worker, or one file, there is a single shard. The supervisor restarts a worker that dies, and recycles it after `recycle_after` probes (default 500).
+
+Each probe runs in a forked child of the worker (`fork`, `PROBE_FORK=false` to disable). Config changes, faked facades, `Carbon::setTestNow`, a logged-in user, a fatal error or an `exit()` die with the child, and the worker keeps the state it booted with. Without `pcntl` and `posix` probes run inside the worker; `--status` and the ping then say `isolation: process` with a notice.
+
+The worker watches the files it loaded at boot (everything outside `vendor`, plus `.env` and `composer.lock`). When one changes, the next call is answered by a fresh worker and carries `recycled: <file>`. Code loaded only inside probes is read again by each child. `vendor` is not watched: run `--cold` after `composer update`.
 
 `--cold` stops the current worker first. `--stop` shuts it down.
 
@@ -138,9 +142,11 @@ On the SQLite used here, `Schema::create` inside a probe rolls back with the tra
 
 ## Browser
 
-`probe_browser` prefers Lightpanda (`lightpanda fetch --dump html <url>`). Set `PROBE_BROWSER=playwright` to force Playwright, or `PROBE_LIGHTPANDA` / `PROBE_PLAYWRIGHT` to an absolute binary. `engine: auto` uses Lightpanda when it is on `PATH`, then Playwright.
+`probe_browser` is a smoke check: fetch a page, assert `--contains` and `--absent` text and `--http-status`, and run `goto`, `fill` and `click` steps. Both engines render client-side apps after `domcontentloaded`, so text that only exists in a Vue template is visible. It takes no screenshots, captures no console output, reports no timings and carries no session or auth. It is not UI testing.
 
-Interaction `steps` (`goto`, `fill`, `click`) always go to Playwright. The package ships `resources/playwright-probe.mjs`, which needs Node and the `playwright` package in the app. If neither engine exists, the result is `status: error` with `id: missing_tool`.
+Engines: Lightpanda (`lightpanda fetch --dump html <url>`) or Playwright through `resources/playwright-probe.mjs`, which needs Node and the `playwright` npm package installed in the app (`npm install -D playwright`); the package is resolved from the project root. `engine: auto` uses Lightpanda when it is on `PATH`, then Playwright. Set `PROBE_BROWSER=playwright` to force Playwright, or `PROBE_LIGHTPANDA` / `PROBE_PLAYWRIGHT` to an absolute binary or script. Steps always go to Playwright. Lightpanda does not report the HTTP status, so `--http-status` on it returns `status: unsupported`. If neither engine exists, the result is `status: error` with `id: missing_tool` and a message naming what is missing.
+
+Each call launches a browser: about 300 ms on either engine for a small local page, almost all of it browser launch. The client waits for `browser.timeout_ms` (default 8 s) before giving up.
 
 URLs must be `http` or `https`. A path such as `/login` is joined to `PROBE_BASE_URL` or `APP_URL`. `--contains` and `--absent` are exact substring checks. A green browser result is `failures: []` plus `value.engine`.
 
@@ -151,6 +157,10 @@ URLs must be `http` or `https`. A path such as `/login` is joined to `PROBE_BASE
 - the changed file itself when it is a test
 - tests that reference a class defined in the changed file
 - tests whose filename contains the source stem (`UserController.php` also matches `User`)
+
+The graph is one hop and name based. A test that reaches the changed class through a controller or a route without naming it is not selected, so a green `run_affected` means "the tests that name this change pass", not "this change is safe". Treat it as a fast first signal and run the suite before calling a change safe.
+
+Every result says what ran: `value.selected` lists the test files relative to the project and `value.selection` is `affected` (the graph picked), `all` (the whole suite ran) or `given` (the caller listed tests). When the whole suite is estimated under `selective.full_suite_under_ms` (default 15 s, from recorded durations with 100 ms for a file without one) the whole suite runs instead of a selection, because selecting would then save less than it can hide. `PROBE_FULL_SUITE_UNDER_MS=0` keeps graph selection only. `mutate_check` and `auto_probe` use the same selection.
 
 Empty `--paths` uses `git diff --name-only HEAD` plus untracked files. No paths and no diff is an error. No matching tests is a pass with `value.ran` of 0.
 
@@ -223,6 +233,7 @@ Published to `config/probe.php`.
 | `migrate` | `true` | Migrate the probe connection at worker boot |
 | `prepare` | `null` | PHP run once at boot, outside the per-probe transaction |
 | `isolate` | `true` | Roll back the default connection after each probe |
+| `fork` | `true` | Run each probe in a forked child so nothing it changes survives; needs `pcntl` and `posix` |
 | `workers` | `1` | Pool size |
 | `timeout_ms` | `5000` | Per-probe wall clock. `pcntl` alarms at one-second resolution |
 | `recycle_after` | `500` | Probes before the worker exits |
@@ -231,13 +242,14 @@ Published to `config/probe.php`.
 | `opcache` | `true` | Pass OPcache file-cache flags to the worker |
 | `browser.engine` | `auto` | `auto`, `lightpanda`, or `playwright` |
 | `selective.runner` | Pest, else PHPUnit | Override with `PROBE_TEST_RUNNER` |
+| `selective.full_suite_under_ms` | 15000 | Run the whole suite when it is estimated under this; `PROBE_FULL_SUITE_UNDER_MS`, 0 keeps graph selection |
 | `mutate.limit` | `8` | Operator flips per `mutate_check` |
 | `property.cases` | `20` | Generated cases per property |
 | `architecture.rules` | `[]` | `path` plus `forbid_use` list |
 | `formal.*` | `alloy`, `tlc`, `dafny`, `lean` | Optional prover binaries |
 | `intelligence.llm` | `false` | Heuristic selector unless an endpoint is set |
 
-Timeouts need `ext-pcntl`. A tight CPU loop may run until the client gives up and the supervisor kills the worker. The next call boots a fresh one.
+Timeouts need `ext-pcntl`. With `fork` on, a tight CPU loop is killed with its child half a second after the timeout and the worker stays up. Without it the loop may run until the client gives up and the supervisor kills the worker; the next call boots a fresh one. The client waits at least the tool's own timeout (browser, selective, formal) before reporting `client timed out`.
 
 ## Security
 

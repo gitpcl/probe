@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Probe\Console;
 
 use Illuminate\Console\Command;
+use Illuminate\Foundation\Application;
 use Probe\Probe;
 use Probe\Project;
 use Probe\Runner\DatabaseGuard;
 use Probe\Runner\HandlerFactory;
+use Probe\Support\ChildEnvironment;
 use Probe\Support\Preloader;
 use Probe\Worker\Registry;
 use Probe\Worker\Server;
@@ -64,6 +66,11 @@ final class WorkCommand extends Command
             probe_execute_snippet($prepare);
         }
 
+        $app = $this->laravel;
+        ChildEnvironment::capture(
+            $app instanceof Application ? $app->environmentFilePath() : $app->basePath('.env'),
+        );
+
         $handler = HandlerFactory::make($this->laravel, $home);
 
         $registry = new Registry;
@@ -74,6 +81,7 @@ final class WorkCommand extends Command
             'database' => $mode,
             'booted_at' => time(),
             'version' => Probe::VERSION,
+            'isolation' => $handler->isolation(),
             'migrate_error' => $database->migrateError(),
             'notice' => $database->notice(),
         ], static fn (mixed $value): bool => $value !== null);

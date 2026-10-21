@@ -30,6 +30,7 @@ final class InstallCommandTest extends TestCase
 
         $this->assertFileExists($config);
         $this->assertDirectoryExists((string) config('probe.home'));
+        $this->assertSame("*\n", file_get_contents(config('probe.home').'/.gitignore'));
 
         if (is_file($config)) {
             unlink($config);

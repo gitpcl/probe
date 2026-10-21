@@ -10,6 +10,7 @@ use Probe\Runner\DatabaseGuard;
 use Probe\Runner\RequestHandler;
 use Probe\Runner\SnippetRunner;
 use Probe\Session\SessionStore;
+use Probe\Worker\SourceWatch;
 
 final class RequestHandlerTest extends TestCase
 {
@@ -92,19 +93,62 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame('code', $result['failures'][0]['id']);
     }
 
-    private function handler(?Toolbox $toolbox = null): RequestHandler
+    public function test_get_failures_shows_the_first_failure_and_the_total(): void
+    {
+        $session = new SessionStore($this->home().'/session.json');
+        $session->put(['status' => 'failed', 'duration_ms' => 12, 'tool' => 'run_affected', 'failures' => [
+            ['id' => '1', 'message' => 'first', 'type' => 'test'],
+            ['id' => '2', 'message' => 'second', 'type' => 'test'],
+        ]]);
+        $handler = $this->handler(session: $session);
+
+        $first = $handler->handle(['tool' => 'get_failures']);
+        $this->assertCount(1, $first['failures']);
+        $this->assertSame('first', $first['failures'][0]['message']);
+        $this->assertSame(['shown' => 1, 'total' => 2], $first['value']);
+
+        $second = $handler->handle(['tool' => 'get_failures', 'id' => '2']);
+        $this->assertSame('second', $second['failures'][0]['message']);
+        $this->assertSame(['shown' => 1, 'total' => 2], $second['value']);
+    }
+
+    public function test_a_changed_source_file_makes_the_worker_refuse_and_stop(): void
+    {
+        $root = sys_get_temp_dir().'/probe-handler-stale-'.bin2hex(random_bytes(4));
+        mkdir($root.'/app', 0775, true);
+        $thing = $root.'/app/Thing.php';
+        file_put_contents($thing, "<?php\nreturn 'thing';\n");
+        touch($thing, time() - 10);
+        include $thing;
+        $handler = $this->handler(watch: new SourceWatch($root));
+
+        $this->assertArrayNotHasKey('stale', $handler->handle(['tool' => 'ping']));
+        $this->assertSame('passed', $handler->handle(['tool' => 'probe', 'code' => 'return 1;'])['status']);
+
+        touch($thing, time() + 5);
+        $refused = $handler->handle(['tool' => 'probe', 'code' => 'return 1;']);
+
+        $this->assertSame('error', $refused['status']);
+        $this->assertSame('stale', $refused['failures'][0]['id']);
+        $this->assertSame('app/Thing.php', $refused['stale']);
+        $this->assertTrue($handler->shouldStop());
+        $this->assertSame('app/Thing.php', $handler->handle(['tool' => 'ping'])['stale']);
+    }
+
+    private function handler(?Toolbox $toolbox = null, ?SourceWatch $watch = null, ?SessionStore $session = null): RequestHandler
     {
         $database = new DatabaseGuard;
         $database->boot($this->app);
 
         return new RequestHandler(
             new SnippetRunner($database, 1024, 5000),
-            new SessionStore($this->home().'/session.json'),
+            $session ?? new SessionStore($this->home().'/session.json'),
             new JsonResultEncoder,
             $database,
             100000,
             500,
             $toolbox,
+            $watch,
         );
     }
 

@@ -7,6 +7,7 @@ namespace Probe\Selective;
 use Probe\Contract\SelectiveRunner;
 use Probe\Result\Failure;
 use Probe\Result\ProbeResult;
+use Probe\Support\ChildEnvironment;
 use Probe\Support\Paths;
 use Probe\Support\Stats;
 
@@ -16,6 +17,8 @@ use Probe\Support\Stats;
  */
 final class AffectedRunner implements SelectiveRunner
 {
+    private const UNKNOWN_TEST_MS = 100;
+
     public function __construct(
         private readonly string $root,
         private readonly DependencyGraph $graph,
@@ -24,6 +27,7 @@ final class AffectedRunner implements SelectiveRunner
         private readonly int $workers = 1,
         private readonly ?string $runner = null,
         private readonly int $timeoutMs = 120000,
+        private readonly int $fullSuiteUnderMs = 0,
     ) {}
 
     /** @param  list<string>  $paths */
@@ -42,26 +46,71 @@ final class AffectedRunner implements SelectiveRunner
             return ProbeResult::error('paths', 'run_affected needs paths or a git diff');
         }
 
-        $tests = isset($request['tests']) && is_array($request['tests'])
-            ? $this->existing($request['tests'])
-            : $this->graph->affectedTests($paths);
-
-        if ($tests === []) {
-            return ProbeResult::passed(Stats::elapsedMs($started), ['ran' => 0], true);
+        $selection = 'given';
+        if (isset($request['tests']) && is_array($request['tests'])) {
+            $tests = $this->existing($request['tests']);
+        } else {
+            ['files' => $tests, 'selection' => $selection] = $this->select($paths);
         }
 
-        return $this->runFiles($tests, $started);
+        if ($tests === []) {
+            return ProbeResult::passed(Stats::elapsedMs($started), ['ran' => 0, 'selection' => $selection, 'selected' => []], true);
+        }
+
+        return $this->runFiles($tests, $started, $selection);
+    }
+
+    /**
+     * The graph's pick, or every test file when the whole suite is estimated to run
+     * under the configured budget: selecting would then save less than it can hide.
+     *
+     * @param  list<string>  $paths
+     * @return array{files: list<string>, selection: string}
+     */
+    public function select(array $paths): array
+    {
+        $affected = ['files' => $this->graph->affectedTests($paths), 'selection' => 'affected'];
+        if ($this->fullSuiteUnderMs <= 0) {
+            return $affected;
+        }
+
+        $all = $this->graph->testFiles();
+        if ($all === [] || $this->estimate($all) >= $this->fullSuiteUnderMs) {
+            return $affected;
+        }
+
+        return ['files' => $all, 'selection' => 'all'];
+    }
+
+    /**
+     * Known durations plus the median known duration for each file without one.
+     *
+     * @param  list<string>  $files
+     */
+    private function estimate(array $files): int
+    {
+        $known = $this->durations->all();
+        $values = array_values($known);
+        sort($values);
+        $median = $values === [] ? self::UNKNOWN_TEST_MS : $values[intdiv(count($values), 2)];
+
+        $total = 0;
+        foreach ($files as $file) {
+            $total += $known[$file] ?? $median;
+        }
+
+        return $total;
     }
 
     /**
      * @param  list<string>  $files
      */
-    public function runFiles(array $files, ?int $started = null): ProbeResult
+    public function runFiles(array $files, ?int $started = null, string $selection = 'given'): ProbeResult
     {
         $started ??= hrtime(true);
         $files = array_values(array_filter($files, 'is_file'));
         if ($files === []) {
-            return ProbeResult::passed(Stats::elapsedMs($started), ['ran' => 0], true);
+            return ProbeResult::passed(Stats::elapsedMs($started), ['ran' => 0, 'selection' => $selection, 'selected' => []], true);
         }
 
         $binary = $this->resolveRunner();
@@ -73,7 +122,7 @@ final class AffectedRunner implements SelectiveRunner
                     id: 'missing_tool',
                     message: 'pest or phpunit was not found',
                 )],
-                value: ['selected' => array_map(fn (string $file): string => Paths::relative($this->root, $file), $files)],
+                value: ['selection' => $selection, 'selected' => $this->relative($files)],
                 hasValue: true,
             );
         }
@@ -83,7 +132,7 @@ final class AffectedRunner implements SelectiveRunner
             ? [$this->executeShard($binary, $shards[0] ?? [])]
             : $this->executeParallel($binary, $shards);
 
-        return $this->merge($reports, $started);
+        return $this->merge($reports, $started, $files, $selection);
     }
 
     public function resolveRunner(): ?string
@@ -125,6 +174,15 @@ final class AffectedRunner implements SelectiveRunner
         }
 
         return $clean;
+    }
+
+    /**
+     * @param  list<string>  $files
+     * @return list<string>
+     */
+    private function relative(array $files): array
+    {
+        return array_map(fn (string $file): string => Paths::relative($this->root, $file), $files);
     }
 
     /**
@@ -180,7 +238,7 @@ final class AffectedRunner implements SelectiveRunner
         $process = proc_open($command, [
             1 => ['file', $stdout, 'w'],
             2 => ['file', $stderr, 'w'],
-        ], $pipes, $this->root);
+        ], $pipes, $this->root, ChildEnvironment::current());
 
         if (! is_resource($process)) {
             @unlink($junit);
@@ -274,7 +332,7 @@ final class AffectedRunner implements SelectiveRunner
             $process = proc_open($command, [
                 1 => ['file', $stdout, 'w'],
                 2 => ['file', $stderr, 'w'],
-            ], $pipes, $this->root);
+            ], $pipes, $this->root, ChildEnvironment::current());
 
             if (! is_resource($process)) {
                 @unlink($junit);
@@ -352,8 +410,9 @@ final class AffectedRunner implements SelectiveRunner
 
     /**
      * @param  list<array{failures: list<array<string, string>>, times: array<string, int>, tests: int, duration_ms: int, status: string}>  $reports
+     * @param  list<string>  $files
      */
-    private function merge(array $reports, int $started): ProbeResult
+    private function merge(array $reports, int $started, array $files, string $selection): ProbeResult
     {
         $status = 'passed';
         $failures = [];
@@ -387,7 +446,7 @@ final class AffectedRunner implements SelectiveRunner
             status: $status,
             durationMs: max($duration, Stats::elapsedMs($started)),
             failures: $failures,
-            value: ['ran' => $ran, 'shards' => count($reports)],
+            value: ['ran' => $ran, 'shards' => count($reports), 'selection' => $selection, 'selected' => $this->relative($files)],
             hasValue: true,
         );
     }

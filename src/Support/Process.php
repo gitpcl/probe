@@ -21,7 +21,7 @@ final class Process
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
             2 => ['pipe', 'w'],
-        ], $pipes, $cwd);
+        ], $pipes, $cwd, ChildEnvironment::current());
 
         if (! is_resource($process)) {
             return [

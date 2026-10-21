@@ -19,11 +19,30 @@ final class SnippetRunner
         private readonly DatabaseGuard $database,
         private readonly int $maxValueBytes = 1024,
         private readonly int $defaultTimeoutMs = 5000,
+        private readonly ?ForkedRun $fork = null,
     ) {}
 
     public function run(string $code, ?int $timeoutMs = null): ProbeResult
     {
         $timeoutMs ??= $this->defaultTimeoutMs;
+
+        if ($this->fork === null || ! $this->fork->available()) {
+            return $this->execute($code, $timeoutMs);
+        }
+
+        $this->database->releaseConnections();
+
+        return $this->fork->run(fn (): ProbeResult => $this->execute($code, $timeoutMs), $timeoutMs);
+    }
+
+    /** fork: each probe runs in a child and leaves nothing behind. process: it runs in the worker. */
+    public function isolation(): string
+    {
+        return $this->fork !== null && $this->fork->available() ? 'fork' : 'process';
+    }
+
+    private function execute(string $code, int $timeoutMs): ProbeResult
+    {
         $started = hrtime(true);
         $level = ob_get_level();
         ob_start();

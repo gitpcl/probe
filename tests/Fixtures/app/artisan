@@ -40,6 +40,11 @@ Illuminate\Support\Facades\Schema::create('notes', function ($table) {
     $table->string('body');
 });
 PHP);
+$bootInclude = getenv('PROBE_BOOT_INCLUDE');
+if (is_string($bootInclude) && is_file($bootInclude)) {
+    require_once $bootInclude;
+}
+
 $app['config']->set('app.key', 'base64:YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=');
 
 $kernel = $app->make(Kernel::class);

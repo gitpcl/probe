@@ -125,7 +125,7 @@ final class DependencyGraph
     }
 
     /** @return list<string> */
-    private function testFiles(): array
+    public function testFiles(): array
     {
         $directory = (realpath($this->root) ?: $this->root).'/tests';
         if (! is_dir($directory)) {

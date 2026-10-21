@@ -111,9 +111,24 @@ final class Failure
         return $slice.'...';
     }
 
+    /**
+     * The exception trace without Probe's own frames (runner, guard, generated
+     * snippet file): what is left is the application's part of the story.
+     */
     private static function trace(Throwable $exception): string
     {
-        $trace = $exception->getTraceAsString();
+        $package = dirname(__DIR__, 2).'/';
+        $lines = [];
+        foreach (explode("\n", $exception->getTraceAsString()) as $line) {
+            if (str_contains($line, $package) || str_contains($line, 'probe-snippet-')) {
+                continue;
+            }
+
+            $space = strpos($line, ' ');
+            $lines[] = '#'.count($lines).($space === false ? '' : substr($line, $space));
+        }
+
+        $trace = implode("\n", $lines);
         if (strlen($trace) <= 1500) {
             return $trace;
         }

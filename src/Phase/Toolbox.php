@@ -55,12 +55,12 @@ final class Toolbox
             $workers,
             is_string($runner) && $runner !== '' ? $runner : null,
             (int) ($config['selective']['timeout_ms'] ?? 120000),
+            (int) ($config['selective']['full_suite_under_ms'] ?? 15000),
         );
         $this->browser = new HybridBrowser($config, $root);
         $this->mutation = new MutationCheck(
             $root,
             $this->affected,
-            $graph,
             limit: (int) ($config['mutate']['limit'] ?? 8),
         );
         $this->property = new PropertyCheck(

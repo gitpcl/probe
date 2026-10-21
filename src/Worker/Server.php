@@ -44,7 +44,13 @@ final class Server
         $this->socketPath = $socketPath;
         $this->stop = false;
 
-        register_shutdown_function(function () use ($socketPath): void {
+        $owner = getmypid();
+        register_shutdown_function(function () use ($socketPath, $owner): void {
+            // A forked probe child exiting must not remove the worker's socket.
+            if (getmypid() !== $owner) {
+                return;
+            }
+
             if ($this->socketPath !== null && file_exists($socketPath)) {
                 @unlink($socketPath);
             }
@@ -103,6 +109,10 @@ final class Server
             ];
         }
 
-        Protocol::write($connection, $response);
+        try {
+            Protocol::write($connection, $response);
+        } catch (Throwable) {
+            // The client stopped waiting. Its next call gets a fresh answer; this worker stays up.
+        }
     }
 }

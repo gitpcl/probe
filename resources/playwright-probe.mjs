@@ -1,12 +1,15 @@
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 
 const input = JSON.parse(readFileSync(0, 'utf8') || '{}');
+const root = process.cwd();
 let chromium;
 
 try {
-  ({ chromium } = await import('playwright'));
+  // Resolve from the project, not from this script: the package may live outside the app.
+  ({ chromium } = createRequire(root + '/package.json')('playwright'));
 } catch {
-  console.error('playwright is not installed');
+  console.error('playwright npm package not found under ' + root + '/node_modules');
   process.exit(127);
 }
 

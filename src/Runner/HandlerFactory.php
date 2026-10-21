@@ -8,6 +8,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Probe\Phase\Toolbox;
 use Probe\Result\JsonResultEncoder;
 use Probe\Session\SessionStore;
+use Probe\Worker\SourceWatch;
 
 final class HandlerFactory
 {
@@ -28,6 +29,7 @@ final class HandlerFactory
             (int) ($config['max_code_bytes'] ?? 100000),
             (int) ($config['recycle_after'] ?? 500),
             new Toolbox($app->basePath(), $config, $snippets, $home),
+            new SourceWatch($app->basePath()),
         );
     }
 }

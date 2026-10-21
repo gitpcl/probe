@@ -54,18 +54,52 @@ final class Pool
         $timeoutMs = $this->resolveTimeout($root, $request, $timeoutMs);
         $request['timeout_ms'] ??= $timeoutMs;
         $socket = $this->ensure($root);
+        $tool = isset($request['tool']) && is_string($request['tool']) ? $request['tool'] : 'probe';
+        $waitMs = max($timeoutMs, Project::toolTimeoutMs($root, $tool)) + self::CLIENT_GRACE_MS;
+        $wait = $waitMs / 1000;
 
         try {
-            return $this->client->requestLine($socket, $request, ($timeoutMs + self::CLIENT_GRACE_MS) / 1000);
+            $line = $this->client->requestLine($socket, $request, $wait);
+            $stale = $this->staleFile($line);
+            if ($stale === null) {
+                return $line;
+            }
+
+            // The worker refused: a source file changed after it booted, so nothing ran.
+            // Replace the pool and send the same request once more.
+            $socket = $this->ensure($root, cold: true);
+            $line = $this->client->requestLine($socket, $request, $wait);
+
+            return $this->staleFile($line) === null ? $this->markRecycled($line, $stale) : $line;
         } catch (WorkerTimeout) {
             $this->stop($root);
 
             return json_encode([
                 'status' => 'error',
-                'duration_ms' => $timeoutMs,
-                'failures' => [['id' => 'timeout', 'message' => 'probe timed out']],
+                'duration_ms' => $waitMs,
+                'failures' => [['id' => 'timeout', 'message' => 'client timed out after '.$waitMs.' ms waiting for the worker']],
             ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         }
+    }
+
+    private function staleFile(string $line): ?string
+    {
+        $decoded = json_decode($line, true);
+        $stale = is_array($decoded) ? ($decoded['stale'] ?? null) : null;
+
+        return is_string($stale) && $stale !== '' ? $stale : null;
+    }
+
+    private function markRecycled(string $line, string $file): string
+    {
+        $decoded = json_decode($line, true);
+        if (! is_array($decoded)) {
+            return $line;
+        }
+
+        $decoded['recycled'] = $file;
+
+        return json_encode($decoded, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     }
 
     public function ensure(string $root, bool $cold = false): string
@@ -245,6 +279,11 @@ final class Pool
             $args[] = 'opcache.enable_cli=1';
             $args[] = '-d';
             $args[] = 'opcache.file_cache='.$cache;
+            // Forked probe children share this cache: an edited file must be recompiled on the next include, not two seconds later.
+            $args[] = '-d';
+            $args[] = 'opcache.validate_timestamps=1';
+            $args[] = '-d';
+            $args[] = 'opcache.revalidate_freq=0';
         }
 
         $args[] = $artisan;

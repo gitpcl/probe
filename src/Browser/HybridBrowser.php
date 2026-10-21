@@ -71,6 +71,21 @@ final class HybridBrowser implements BrowserProbe
             return ProbeResult::error('browser', $page['error'], $result['duration_ms']);
         }
 
+        if (is_numeric($request['http_status'] ?? null) && $page['http_status'] === null) {
+            return new ProbeResult(
+                status: 'unsupported',
+                durationMs: $result['duration_ms'],
+                failures: [new Failure(
+                    id: 'http_status',
+                    message: $plan['engine'].' does not report the http status; set PROBE_BROWSER=playwright',
+                    type: 'browser',
+                    file: $url,
+                )],
+                value: ['engine' => $plan['engine']],
+                hasValue: true,
+            );
+        }
+
         $failures = $this->assertions($request, $url, $page['body'], $page['http_status']);
         $duration = max($result['duration_ms'], Stats::elapsedMs($started));
 
@@ -102,7 +117,7 @@ final class HybridBrowser implements BrowserProbe
 
         if ($steps) {
             if ($playwright === null) {
-                return ['error' => 'browser steps need playwright'];
+                return ['error' => 'browser steps need playwright: '.$this->playwrightMissing()];
             }
 
             return ['engine' => 'playwright', 'command' => $playwright];
@@ -118,7 +133,7 @@ final class HybridBrowser implements BrowserProbe
 
         if ($engine === 'playwright') {
             if ($playwright === null) {
-                return ['error' => 'playwright was not found'];
+                return ['error' => $this->playwrightMissing()];
             }
 
             return ['engine' => 'playwright', 'command' => $playwright];
@@ -132,7 +147,7 @@ final class HybridBrowser implements BrowserProbe
             return ['engine' => 'playwright', 'command' => $playwright];
         }
 
-        return ['error' => 'lightpanda and playwright were not found'];
+        return ['error' => 'lightpanda was not found and '.$this->playwrightMissing()];
     }
 
     private function binary(string $name): ?string
@@ -162,16 +177,32 @@ final class HybridBrowser implements BrowserProbe
             return Process::phpCommand($configured);
         }
 
-        $node = $this->binary((string) ($this->config['browser']['node'] ?? 'node'));
+        $node = $this->binary($this->nodeName());
         $script = dirname(__DIR__, 2).'/resources/playwright-probe.mjs';
-        $module = ($this->root !== '' ? $this->root : getcwd()).'/node_modules/playwright';
-        if ($node !== null && is_file($script) && (is_dir($module) || Process::which('playwright') !== null)) {
+        if ($node !== null && is_file($script) && is_dir($this->playwrightModule())) {
             return [$node, $script];
         }
 
-        $binary = $this->binary($configured);
+        return null;
+    }
 
-        return $binary !== null ? Process::phpCommand($binary) : null;
+    private function nodeName(): string
+    {
+        return (string) ($this->config['browser']['node'] ?? 'node');
+    }
+
+    private function playwrightModule(): string
+    {
+        return ($this->root !== '' ? $this->root : (string) getcwd()).'/node_modules/playwright';
+    }
+
+    private function playwrightMissing(): string
+    {
+        if ($this->binary($this->nodeName()) === null) {
+            return 'node was not found';
+        }
+
+        return 'playwright npm package is not installed in '.dirname($this->playwrightModule(), 2).' (npm install -D playwright)';
     }
 
     /** @param  array<string, mixed>  $request */

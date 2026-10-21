@@ -114,6 +114,31 @@ final class DatabaseGuard
         }
     }
 
+    /**
+     * Before a fork: drop every host connection so the child opens its own instead
+     * of sharing the parent's socket. The in-memory SQLite connection stays: each
+     * process gets its own copy of that database.
+     */
+    public function releaseConnections(): void
+    {
+        if ($this->app === null || ! $this->app->bound('db')) {
+            return;
+        }
+
+        try {
+            $manager = $this->app->make('db');
+            foreach (array_keys($manager->getConnections()) as $name) {
+                if ($this->mode === 'sqlite_memory' && $name === 'probe') {
+                    continue;
+                }
+
+                $manager->purge($name);
+            }
+        } catch (Throwable) {
+            // A connection that cannot be dropped is reported by the probe that uses it.
+        }
+    }
+
     private function shouldIsolate(): bool
     {
         if ($this->app === null || ! $this->app->bound('config')) {

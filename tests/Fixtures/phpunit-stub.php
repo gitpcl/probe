@@ -38,6 +38,12 @@ if (is_string($log) && $log !== '') {
     file_put_contents($log, implode("\n", $files)."\n", FILE_APPEND | LOCK_EX);
 }
 
+$envLog = getenv('PROBE_STUB_ENV_LOG');
+if (is_string($envLog) && $envLog !== '') {
+    $appEnv = getenv('APP_ENV');
+    file_put_contents($envLog, ($appEnv === false ? 'unset' : $appEnv)."\n", FILE_APPEND | LOCK_EX);
+}
+
 $fileAttribute = htmlspecialchars($files[0] ?? '', ENT_QUOTES);
 $failure = $fail ? '<failure message="expected 1">expected 1</failure>' : '';
 $failures = $fail ? '1' : '0';

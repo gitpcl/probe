@@ -37,7 +37,7 @@ final class AutoProbe
         }
 
         $limit = isset($request['limit']) ? max(1, (int) $request['limit']) : $this->limit;
-        $tests = $this->graph->affectedTests($paths);
+        $tests = $this->runner->select($paths)['files'];
         $context = [
             'tests' => $tests,
             'history' => $this->history->recent(),

@@ -13,6 +13,18 @@ use RuntimeException;
 
 final class SnippetExecutorTest extends TestCase
 {
+    public function test_a_failure_trace_keeps_only_application_frames(): void
+    {
+        $result = (new SnippetRunner(new DatabaseGuard))->run('throw new RuntimeException("boom");');
+
+        $trace = (string) $result->failures[0]->trace;
+        $this->assertSame('failed', $result->status);
+        $this->assertStringNotContainsString('SnippetRunner.php', $trace);
+        $this->assertStringNotContainsString('execute_snippet.php', $trace);
+        $this->assertStringNotContainsString('probe-snippet-', $trace);
+        $this->assertStringStartsWith('#0 ', $trace);
+    }
+
     public function test_return_value_and_missing_return(): void
     {
         $this->assertSame(2, probe_execute_snippet('return 1 + 1;'));

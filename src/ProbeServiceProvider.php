@@ -11,6 +11,7 @@ use Probe\Console\ProbeCommand;
 use Probe\Console\WorkCommand;
 use Probe\Result\JsonResultEncoder;
 use Probe\Runner\DatabaseGuard;
+use Probe\Runner\ForkedRun;
 use Probe\Runner\HandlerFactory;
 use Probe\Runner\RequestHandler;
 use Probe\Runner\SnippetRunner;
@@ -41,6 +42,7 @@ final class ProbeServiceProvider extends ServiceProvider
                 $app->make(DatabaseGuard::class),
                 (int) $app->make('config')->get('probe.max_value_bytes', 1024),
                 (int) $app->make('config')->get('probe.timeout_ms', 5000),
+                new ForkedRun((bool) $app->make('config')->get('probe.fork', true)),
             );
         });
 

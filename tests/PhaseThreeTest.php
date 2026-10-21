@@ -215,7 +215,7 @@ final class PhaseThreeTest extends TestCase
 
     private function mutation(string $root): MutationCheck
     {
-        return new MutationCheck($root, $this->runner($root), new DependencyGraph($root), new Mutator, 8);
+        return new MutationCheck($root, $this->runner($root), new Mutator, 8);
     }
 
     private function runner(string $root): AffectedRunner

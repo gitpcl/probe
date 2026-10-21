@@ -8,7 +8,6 @@ use Probe\Contract\QualityCheck;
 use Probe\Result\Failure;
 use Probe\Result\ProbeResult;
 use Probe\Selective\AffectedRunner;
-use Probe\Selective\DependencyGraph;
 use Probe\Support\Paths;
 use Probe\Support\Stats;
 
@@ -18,7 +17,6 @@ final class MutationCheck implements QualityCheck
     public function __construct(
         private readonly string $root,
         private readonly AffectedRunner $runner,
-        private readonly DependencyGraph $graph,
         private readonly Mutator $mutator = new Mutator,
         private readonly int $limit = 8,
     ) {}
@@ -56,7 +54,7 @@ final class MutationCheck implements QualityCheck
 
         $tests = isset($request['tests']) && is_array($request['tests'])
             ? array_values(array_filter($request['tests'], 'is_string'))
-            : $this->graph->affectedTests([$path]);
+            : $this->runner->select([$path])['files'];
 
         if ($tests === []) {
             return ProbeResult::error('tests', 'no tests cover that file');
