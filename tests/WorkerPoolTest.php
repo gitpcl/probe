@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Probe\Tests;
 
 use PHPUnit\Framework\TestCase;
+use Probe\Probe;
 use Probe\Project;
 use Probe\Support\Stats;
 use Probe\Worker\Pool;
@@ -131,6 +132,51 @@ final class WorkerPoolTest extends TestCase
     private function probe(string $code): array
     {
         return json_decode($this->pool->dispatch($this->root, ['tool' => 'probe', 'code' => $code], 15000), true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    public function test_the_shell_entry_answers_a_bare_snippet_from_the_live_worker(): void
+    {
+        $this->probe('return 1;');
+
+        [$seven, $code] = $this->shellProbe('return 7;');
+        $this->assertSame(0, $code, json_encode($seven));
+        $this->assertSame(7, $seven['value']);
+
+        [$thrown, $code] = $this->shellProbe('throw new RuntimeException("boom");');
+        $this->assertSame(1, $code, json_encode($thrown));
+        $this->assertSame('boom', $thrown['failures'][0]['message']);
+
+        $snippet = "\$x = 'line1\nline2';\n\treturn [\$x, \"q\\\"q\", 'b\\\\s', '%s', 'ünï'];";
+        [$escaped, $code] = $this->shellProbe($snippet);
+        $this->assertSame(0, $code, json_encode($escaped));
+        $this->assertSame(["line1\nline2", 'q"q', 'b\\s', '%s', 'ünï'], $escaped['value']);
+    }
+
+    public function test_the_shell_entry_falls_back_to_the_php_client(): void
+    {
+        $this->pool->stop($this->root);
+
+        [$first, $code] = $this->shellProbe('return 3;');
+        $this->assertSame(0, $code, json_encode($first));
+        $this->assertSame(3, $first['value'], 'with no worker the PHP client spawns one');
+
+        exec('sh '.escapeshellarg(dirname(__DIR__).'/bin/probe').' --version', $lines, $code);
+        $this->assertSame(0, $code);
+        $this->assertSame(Probe::VERSION, trim(implode('', $lines)));
+    }
+
+    /** @return array{0: array<string, mixed>, 1: int} */
+    private function shellProbe(string ...$args): array
+    {
+        $command = 'cd '.escapeshellarg($this->root).' && sh '.escapeshellarg(dirname(__DIR__).'/bin/probe');
+        foreach ($args as $arg) {
+            $command .= ' '.escapeshellarg($arg);
+        }
+
+        exec($command.' 2>/dev/null', $lines, $code);
+        $decoded = json_decode(implode("\n", $lines), true);
+
+        return [is_array($decoded) ? $decoded : ['raw' => implode("\n", $lines)], $code];
     }
 
     public function test_worker_uses_sqlite_memory_and_rolls_back_writes(): void

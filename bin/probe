@@ -1,27 +1,71 @@
-#!/usr/bin/env php
-<?php
+#!/bin/sh
+# Probe client. A bare snippet (one argument, no flags) goes to the live worker over
+# nc without starting PHP on this side. Everything else, and any miss (no worker yet,
+# no Unix-socket nc, a changed source file), runs the PHP client next to this file,
+# which also supervises the worker. Every fork costs about a millisecond here, so the
+# fast path uses shell builtins and exactly two external processes: awk and nc.
+case $0 in */*) client=${0%/*}/probe.php ;; *) client=./probe.php ;; esac
 
-declare(strict_types=1);
+slow() { exec php "$client" "$@"; }
 
-$autoloadCandidates = [
-    __DIR__.'/../vendor/autoload.php',
-    __DIR__.'/../../../autoload.php',
-];
+[ $# -eq 1 ] || slow "$@"
+case $1 in ''|-*) slow "$@" ;; esac
+command -v nc >/dev/null 2>&1 || slow "$@"
 
-$autoload = null;
+root=$PWD
+while [ ! -f "$root/artisan" ]; do
+    [ "$root" = / ] && slow "$@"
+    root=${root%/*}
+    [ -n "$root" ] || root=/
+done
 
-foreach ($autoloadCandidates as $candidate) {
-    if (is_file($candidate)) {
-        $autoload = $candidate;
-        break;
+home=${PROBE_HOME:-}
+if [ -z "$home" ] && [ -f "$root/.env" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        case $line in
+            PROBE_HOME=*) home=${line#PROBE_HOME=}; break ;;
+        esac
+    done < "$root/.env"
+    home=${home#\"}; home=${home%\"}; home=${home#\'}; home=${home%\'}
+fi
+[ -n "$home" ] || home="$root/storage/framework/probe"
+
+sock=
+[ -f "$home/active.json" ] || slow "$@"
+while IFS= read -r line || [ -n "$line" ]; do
+    case $line in
+        *'"socket":'*)
+            sock=${line#*\"socket\":}
+            sock=${sock#"${sock%%[! ]*}"}
+            sock=${sock#\"}
+            sock=${sock%%\"*}
+            break ;;
+    esac
+done < "$home/active.json"
+[ -n "$sock" ] && [ -S "$sock" ] || slow "$@"
+
+reply=$(printf '%s' "$1" | awk '
+    BEGIN { ORS = ""; printf "{\"tool\":\"probe\",\"code\":\"" }
+    {
+        if (NR > 1) printf "\\n"
+        n = length($0)
+        for (i = 1; i <= n; i++) {
+            c = substr($0, i, 1)
+            if (c == "\\") printf "\\\\"
+            else if (c == "\"") printf "\\\""
+            else if (c == "\t") printf "\\t"
+            else if (c == "\r") printf "\\r"
+            else printf "%s", c
+        }
     }
-}
+    END { printf "\"}\n" }
+' | nc -U "$sock" 2>/dev/null) || slow "$@"
+[ -n "$reply" ] || slow "$@"
+case $reply in *'"stale":'*) slow "$@" ;; esac
 
-if ($autoload === null) {
-    fwrite(STDOUT, '{"status":"error","duration_ms":0,"failures":[{"id":"autoload","message":"could not locate vendor/autoload.php"}]}'."\n");
-    exit(2);
-}
-
-require $autoload;
-
-exit(Probe\Console\Dispatcher::main($argv));
+printf '%s\n' "$reply"
+case $reply in
+    '{"status":"passed"'*) exit 0 ;;
+    '{"status":"failed"'*) exit 1 ;;
+    *) exit 2 ;;
+esac

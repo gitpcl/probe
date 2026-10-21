@@ -154,6 +154,20 @@ final class Project
         return filter_var($fromEnv, FILTER_VALIDATE_BOOL);
     }
 
+    /** Logical CPUs, for the default shard count. */
+    public static function cpuCount(): int
+    {
+        static $count = null;
+        if ($count !== null) {
+            return $count;
+        }
+
+        $raw = function_exists('shell_exec') ? (string) @shell_exec('nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null') : '';
+        $count = (int) trim($raw);
+
+        return $count = $count > 0 ? $count : 4;
+    }
+
     public static function phpBinary(string $root): string
     {
         $binary = EnvFile::get($root, 'PROBE_PHP');

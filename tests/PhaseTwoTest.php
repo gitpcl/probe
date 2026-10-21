@@ -6,6 +6,7 @@ namespace Probe\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Probe\Browser\HybridBrowser;
+use Probe\Project;
 use Probe\Selective\AffectedRunner;
 use Probe\Selective\DependencyGraph;
 use Probe\Selective\DurationBook;
@@ -26,6 +27,59 @@ final class PhaseTwoTest extends TestCase
         $names = array_map('basename', $selected);
 
         $this->assertSame(['UserTest.php'], $names);
+    }
+
+    public function test_a_change_follows_static_references_to_the_tests_of_its_callers(): void
+    {
+        $root = $this->tree([
+            'app/Services/Orchestrator.php' => "<?php\nnamespace App\\Services;\nclass Orchestrator {}\n",
+            'app/Http/Controllers/VoiceController.php' => "<?php\nnamespace App\\Http\\Controllers;\n\nuse App\\Services\\Orchestrator;\n\nclass VoiceController {\n    public function process(): void { (new Orchestrator)->run(); }\n}\n",
+            'app/Jobs/Unrelated.php' => "<?php\nnamespace App\\Jobs;\nclass Unrelated { public function handle(\\App\\Http\\Controllers\\VoiceController \$c): void {} }\n",
+            'tests/Feature/OrchestratorTest.php' => "<?php\nuse App\\Services\\Orchestrator;\nclass OrchestratorTest {}\n",
+            'tests/Feature/VoiceControllerTest.php' => "<?php\nuse App\\Http\\Controllers\\VoiceController;\nclass VoiceControllerTest {}\n",
+            'tests/Feature/UnrelatedJobTest.php' => "<?php\nuse App\\Jobs\\Unrelated;\nclass UnrelatedJobTest {}\n",
+            'tests/Feature/OtherTest.php' => "<?php\nclass OtherTest {}\n",
+        ]);
+
+        $names = fn (array $files): array => array_map('basename', $files);
+
+        $this->assertSame(['OrchestratorTest.php'], $names((new DependencyGraph($root, 0))->affectedTests(['app/Services/Orchestrator.php'])));
+        $this->assertSame(['OrchestratorTest.php', 'VoiceControllerTest.php'], $names((new DependencyGraph($root, 1))->affectedTests(['app/Services/Orchestrator.php'])));
+        $this->assertSame(['OrchestratorTest.php', 'UnrelatedJobTest.php', 'VoiceControllerTest.php'], $names((new DependencyGraph($root, 4))->affectedTests(['app/Services/Orchestrator.php'])));
+    }
+
+    public function test_a_route_to_an_impacted_controller_selects_the_test_that_only_hits_the_uri(): void
+    {
+        $root = $this->tree([
+            'app/Services/Orchestrator.php' => "<?php\nnamespace App\\Services;\nclass Orchestrator {}\n",
+            'app/Http/Controllers/VoiceController.php' => "<?php\nnamespace App\\Http\\Controllers;\nuse App\\Services\\Orchestrator;\nclass VoiceController { public function process(Orchestrator \$o): void {} }\n",
+            'tests/Feature/VoiceLoopStabilityTest.php' => "<?php\nclass VoiceLoopStabilityTest { public function test_it() { \$this->postJson('/_/voice/process', []); } }\n",
+            'tests/Feature/NamedRouteTest.php' => "<?php\nclass NamedRouteTest { public function test_it() { \$this->get(route(\"voice.show\")); } }\n",
+            'tests/Feature/OtherTest.php' => "<?php\nclass OtherTest { public function test_it() { \$this->get('/other'); } }\n",
+        ]);
+        $routes = static fn (): array => ['App\\Http\\Controllers\\VoiceController' => ['/_/voice/process', 'voice.show']];
+
+        $selected = array_map('basename', (new DependencyGraph($root, 4, $routes))->affectedTests(['app/Services/Orchestrator.php']));
+
+        $this->assertSame(['NamedRouteTest.php', 'VoiceLoopStabilityTest.php'], $selected);
+        $this->assertSame([], (new DependencyGraph($root, 4))->affectedTests(['app/Services/Orchestrator.php']), 'without a route map the URI hop is off');
+    }
+
+    public function test_the_reference_index_follows_edits_to_source_files(): void
+    {
+        $root = $this->tree([
+            'app/A.php' => "<?php\nnamespace App;\nclass A {}\n",
+            'app/B.php' => "<?php\nnamespace App;\nclass B {}\n",
+            'tests/Feature/BTest.php' => "<?php\nuse App\\B;\nclass BTest {}\n",
+        ]);
+        $graph = new DependencyGraph($root, 2);
+
+        $this->assertSame([], $graph->affectedTests(['app/A.php']));
+
+        file_put_contents($root.'/app/B.php', "<?php\nnamespace App;\nclass B { public function __construct(A \$a) {} }\n");
+        touch($root.'/app/B.php', time() + 5);
+
+        $this->assertSame(['BTest.php'], array_map('basename', $graph->affectedTests(['app/A.php'])));
     }
 
     public function test_shard_planner_packs_long_files_apart(): void
@@ -62,6 +116,22 @@ XML);
         $this->assertSame(1, $parsed['tests']);
         $this->assertSame('UserTest::test_it: expected 1', $parsed['failures'][0]['message']);
         $this->assertSame(20, $parsed['times']['/tmp/UserTest.php']);
+    }
+
+    public function test_junit_times_are_per_file_even_when_pest_appends_the_test_name(): void
+    {
+        $parsed = JunitReport::parse(<<<'XML'
+<?xml version="1.0"?>
+<testsuites>
+  <testsuite tests="3" failures="0">
+    <testcase name="first" classname="UserTest" file="/tmp/UserTest.php::first" time="0.02"/>
+    <testcase name="second" classname="UserTest" file="/tmp/UserTest.php::second" time="0.03"/>
+    <testcase name="other" classname="OrderTest" file="/tmp/OrderTest.php" time="0.01"/>
+  </testsuite>
+</testsuites>
+XML);
+
+        $this->assertSame(['/tmp/UserTest.php' => 50, '/tmp/OrderTest.php' => 10], $parsed['times']);
     }
 
     public function test_run_affected_executes_only_the_impacted_test(): void
@@ -257,6 +327,154 @@ XML);
         $this->assertSame(['tests/Feature/UserTest.php'], $result->value['selected']);
     }
 
+    public function test_fork_mode_runs_shards_in_forked_children_and_reports_it(): void
+    {
+        $root = $this->tree([
+            'tests/Feature/UserTest.php' => "<?php\nclass UserTest {}\n",
+            'tests/Feature/OrderTest.php' => "<?php\nclass OrderTest {}\n",
+        ]);
+        $log = $root.'/ran.log';
+        putenv('PROBE_STUB_LOG='.$log);
+
+        try {
+            $result = $this->runner($root, 2)->run(['tests' => [$root.'/tests/Feature/UserTest.php', $root.'/tests/Feature/OrderTest.php'], 'paths' => ['tests']]);
+        } finally {
+            putenv('PROBE_STUB_LOG');
+        }
+
+        $this->assertSame('passed', $result->status, $result->toJson());
+        $this->assertSame('fork', $result->value['mode']);
+        $this->assertSame(2, $result->value['shards']);
+        $this->assertGreaterThanOrEqual($result->durationMs, $result->value['shard_ms'], 'shards run side by side: their sum is at least the wall time');
+        $this->assertSame(2, $result->value['ran']);
+        $logged = (string) file_get_contents($log);
+        $this->assertStringContainsString('UserTest.php', $logged);
+        $this->assertStringContainsString('OrderTest.php', $logged);
+    }
+
+    public function test_process_mode_starts_a_runner_process_per_shard(): void
+    {
+        $root = $this->tree(['tests/Feature/UserTest.php' => "<?php\nclass UserTest {}\n"]);
+
+        $result = $this->runner($root, 1, 0, 'process')->run(['paths' => ['tests/Feature/UserTest.php']]);
+
+        $this->assertSame('passed', $result->status, $result->toJson());
+        $this->assertSame('process', $result->value['mode']);
+    }
+
+    public function test_a_hung_forked_shard_is_killed_at_the_timeout(): void
+    {
+        $root = $this->tree(['tests/Feature/UserTest.php' => "<?php\nclass UserTest {}\n"]);
+        putenv('PROBE_STUB_SLEEP_MS=3000');
+        $started = hrtime(true);
+
+        try {
+            $result = $this->runner($root, 1, 0, 'fork', 400)->run(['paths' => ['tests/Feature/UserTest.php']]);
+        } finally {
+            putenv('PROBE_STUB_SLEEP_MS');
+        }
+
+        $this->assertSame('error', $result->status, $result->toJson());
+        $this->assertSame('test shard timed out', $result->failures[0]->message);
+        $this->assertLessThan(2500, (hrtime(true) - $started) / 1e6);
+    }
+
+    public function test_auto_shards_follow_the_cpu_count_capped_by_the_file_count(): void
+    {
+        $root = $this->tree([
+            'tests/Feature/ATest.php' => "<?php\nclass ATest {}\n",
+            'tests/Feature/BTest.php' => "<?php\nclass BTest {}\n",
+            'tests/Feature/CTest.php' => "<?php\nclass CTest {}\n",
+        ]);
+
+        $result = $this->runner($root, 0, 15000)->run(['paths' => ['tests']]);
+
+        $this->assertSame('passed', $result->status, $result->toJson());
+        $this->assertSame(min(3, Project::cpuCount()), $result->value['shards']);
+    }
+
+    public function test_a_persistent_browser_answers_from_one_process_and_recovers_from_death_and_timeout(): void
+    {
+        $browser = new HybridBrowser([
+            'browser' => [
+                'engine' => 'auto',
+                'persistent' => true,
+                'server' => dirname(__DIR__).'/tests/Fixtures/browser-server.php',
+                'lightpanda' => 'lightpanda-not-installed',
+                'base_url' => 'http://example.test',
+                'timeout_ms' => 1000,
+            ],
+        ], '');
+
+        try {
+            $first = $browser->check(['url' => 'http://example.test/a', 'contains' => 'Example Domain']);
+            $second = $browser->check(['url' => 'http://example.test/b', 'http_status' => 200]);
+            $this->assertSame('passed', $first->status, $first->toJson());
+            $this->assertSame('playwright', $first->value['engine']);
+            $this->assertTrue($first->value['persistent']);
+            $this->assertSame($first->value['pid'], $second->value['pid'], 'one browser process serves both checks');
+
+            $died = $browser->check(['url' => 'http://example.test/die']);
+            $this->assertSame('error', $died->status, $died->toJson());
+            $revived = $browser->check(['url' => 'http://example.test/c']);
+            $this->assertSame('passed', $revived->status, $revived->toJson());
+            $this->assertNotSame($first->value['pid'], $revived->value['pid'], 'a dead browser is replaced on the next check');
+
+            $slow = $browser->check(['url' => 'http://example.test/slow']);
+            $this->assertSame('error', $slow->status, $slow->toJson());
+            $this->assertSame('timeout', $slow->failures[0]->id);
+
+            $notFound = $browser->check(['url' => 'http://example.test/nope', 'http_status' => 200]);
+            $this->assertSame('failed', $notFound->status);
+        } finally {
+            $browser->stop();
+        }
+    }
+
+    public function test_browser_errors_keep_the_engine_and_lose_ansi_codes(): void
+    {
+        $browser = new HybridBrowser([
+            'browser' => [
+                'engine' => 'auto',
+                'persistent' => true,
+                'server' => dirname(__DIR__).'/tests/Fixtures/browser-server.php',
+                'lightpanda' => 'lightpanda-not-installed',
+                'base_url' => 'http://example.test',
+                'timeout_ms' => 1000,
+            ],
+        ], '');
+
+        try {
+            $result = $browser->check(['url' => 'http://example.test/ansi']);
+        } finally {
+            $browser->stop();
+        }
+
+        $this->assertSame('error', $result->status, $result->toJson());
+        $this->assertSame('page.click: Timeout 8000ms exceeded. Call log: - waiting for locator', $result->failures[0]->message);
+        $this->assertSame(['engine' => 'playwright', 'persistent' => true], $result->value);
+    }
+
+    public function test_persistent_off_keeps_the_one_shot_engines(): void
+    {
+        $browser = new HybridBrowser([
+            'browser' => [
+                'engine' => 'auto',
+                'persistent' => false,
+                'server' => dirname(__DIR__).'/tests/Fixtures/browser-server.php',
+                'lightpanda' => dirname(__DIR__).'/tests/Fixtures/browser-dump.php',
+                'base_url' => 'http://example.test',
+                'timeout_ms' => 1000,
+            ],
+        ], '');
+
+        $result = $browser->check(['url' => 'http://example.test/']);
+
+        $this->assertSame('passed', $result->status, $result->toJson());
+        $this->assertSame('lightpanda', $result->value['engine']);
+        $this->assertArrayNotHasKey('persistent', $result->value);
+    }
+
     public function test_a_status_assertion_is_unsupported_when_the_engine_cannot_report_one(): void
     {
         $browser = new HybridBrowser([
@@ -276,7 +494,7 @@ XML);
         $this->assertSame('lightpanda', $result->value['engine']);
     }
 
-    private function runner(string $root, int $workers, int $fullSuiteUnderMs = 0): AffectedRunner
+    private function runner(string $root, int $workers, int $fullSuiteUnderMs = 0, string $mode = 'fork', int $timeoutMs = 120000): AffectedRunner
     {
         return new AffectedRunner(
             $root,
@@ -285,8 +503,9 @@ XML);
             new DurationBook($root.'/durations.json'),
             $workers,
             dirname(__DIR__).'/tests/Fixtures/phpunit-stub.php',
-            120000,
+            $timeoutMs,
             $fullSuiteUnderMs,
+            $mode,
         );
     }
 

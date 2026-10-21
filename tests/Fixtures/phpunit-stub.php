@@ -18,6 +18,11 @@ foreach ($argv as $index => $arg) {
     }
 }
 
+$sleep = getenv('PROBE_STUB_SLEEP_MS');
+if (is_string($sleep) && $sleep !== '') {
+    usleep((int) $sleep * 1000);
+}
+
 $fail = getenv('PROBE_STUB_FAIL') === '1';
 foreach ($files as $file) {
     if (str_contains(basename($file), 'Fail')) {

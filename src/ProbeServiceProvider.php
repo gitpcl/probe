@@ -26,7 +26,12 @@ final class ProbeServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->mergeConfigFrom(dirname(__DIR__).'/config/probe.php', 'probe');
+        // A published config written for an older release lacks keys added since. Laravel's
+        // mergeConfigFrom is shallow, so a nested block such as selective would hide every new
+        // default under it; this merge fills missing keys at any depth and keeps published values.
+        $config = $this->app->make('config');
+        $published = $config->get('probe', []);
+        $config->set('probe', self::withDefaults(require dirname(__DIR__).'/config/probe.php', is_array($published) ? $published : []));
 
         $this->app->singleton(Client::class);
         $this->app->singleton(Registry::class);
@@ -63,6 +68,24 @@ final class ProbeServiceProvider extends ServiceProvider
 
             return HandlerFactory::make($app, $home);
         });
+    }
+
+    /**
+     * @param  array<string, mixed>  $defaults
+     * @param  array<string, mixed>  $published
+     * @return array<string, mixed>
+     */
+    public static function withDefaults(array $defaults, array $published): array
+    {
+        foreach ($defaults as $key => $value) {
+            if (! array_key_exists($key, $published)) {
+                $published[$key] = $value;
+            } elseif (is_array($value) && is_array($published[$key]) && ! array_is_list($value)) {
+                $published[$key] = self::withDefaults($value, $published[$key]);
+            }
+        }
+
+        return $published;
     }
 
     public function boot(): void

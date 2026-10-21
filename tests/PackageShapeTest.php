@@ -13,6 +13,7 @@ use Probe\Contract\SelectiveRunner;
 use Probe\Formal\SpecRunner;
 use Probe\Intelligence\HeuristicSelector;
 use Probe\Intelligence\Selector;
+use Probe\Probe;
 use Probe\Quality\ArchitectureCheck;
 use Probe\Quality\MutationCheck;
 use Probe\Quality\PropertyCheck;
@@ -29,6 +30,7 @@ final class PackageShapeTest extends TestCase
         $this->assertSame('src/', $json['autoload']['psr-4']['Probe\\']);
         $this->assertContains('Probe\\ProbeServiceProvider', $json['extra']['laravel']['providers']);
         $this->assertContains('bin/probe', $json['bin']);
+        $this->assertContains('bin/probe-mcp', $json['bin']);
         $this->assertSame('library', $json['type']);
     }
 
@@ -41,5 +43,22 @@ final class PackageShapeTest extends TestCase
         $this->assertContains(QualityCheck::class, class_implements(PropertyCheck::class));
         $this->assertContains(QualityCheck::class, class_implements(ArchitectureCheck::class));
         $this->assertContains(Selector::class, class_implements(HeuristicSelector::class));
+    }
+
+    public function test_the_client_runs_without_the_application_autoloader(): void
+    {
+        $bin = dirname(__DIR__).'/bin/probe.php';
+        $this->assertStringNotContainsString('autoload.php', (string) file_get_contents($bin));
+
+        $shell = dirname(__DIR__).'/bin/probe';
+        $this->assertStringStartsWith("#!/bin/sh\n", (string) file_get_contents($shell));
+        $this->assertTrue(is_executable($shell));
+
+        $empty = sys_get_temp_dir().'/probe-novendor-'.bin2hex(random_bytes(4));
+        mkdir($empty, 0775, true);
+        $output = shell_exec('cd '.escapeshellarg($empty).' && '.escapeshellarg(PHP_BINARY).' '.escapeshellarg($bin).' --version 2>&1');
+        rmdir($empty);
+
+        $this->assertSame(Probe::VERSION, trim((string) $output));
     }
 }

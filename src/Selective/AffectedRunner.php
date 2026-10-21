@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Probe\Selective;
 
+use Closure;
 use Probe\Contract\SelectiveRunner;
+use Probe\Project;
 use Probe\Result\Failure;
 use Probe\Result\ProbeResult;
 use Probe\Support\ChildEnvironment;
@@ -28,6 +30,8 @@ final class AffectedRunner implements SelectiveRunner
         private readonly ?string $runner = null,
         private readonly int $timeoutMs = 120000,
         private readonly int $fullSuiteUnderMs = 0,
+        private readonly string $mode = 'fork',
+        private readonly ?Closure $beforeFork = null,
     ) {}
 
     /** @param  list<string>  $paths */
@@ -127,12 +131,13 @@ final class AffectedRunner implements SelectiveRunner
             );
         }
 
-        $shards = $this->planner->plan($files, $this->durations->all(), $this->workers);
-        $reports = count($shards) <= 1
-            ? [$this->executeShard($binary, $shards[0] ?? [])]
-            : $this->executeParallel($binary, $shards);
+        $shards = $this->planner->plan($files, $this->durations->all(), $this->shardCount(count($files)));
+        $forked = $this->mode !== 'process' && ForkedShards::available();
+        $reports = $forked
+            ? (new ForkedShards($this->root, $this->timeoutMs, $this->beforeFork))->run($binary, $shards)
+            : $this->executeProcesses($binary, $shards);
 
-        return $this->merge($reports, $started, $files, $selection);
+        return $this->merge($reports, $started, $files, $selection, $forked ? 'fork' : 'process');
     }
 
     public function resolveRunner(): ?string
@@ -206,111 +211,19 @@ final class AffectedRunner implements SelectiveRunner
         return array_values(array_unique($files));
     }
 
-    /**
-     * @param  list<string>  $files
-     * @return array{failures: list<array<string, string>>, times: array<string, int>, tests: int, duration_ms: int, status: string}
-     */
-    private function executeShard(string $binary, array $files): array
+    /** Configured shard count, or one per CPU capped by the file count. */
+    private function shardCount(int $files): int
     {
-        if ($files === []) {
-            return ['failures' => [], 'times' => [], 'tests' => 0, 'duration_ms' => 0, 'status' => 'passed'];
-        }
-
-        $junit = tempnam(sys_get_temp_dir(), 'probe-junit-');
-        if ($junit === false) {
-            return [
-                'failures' => [['id' => '1', 'message' => 'could not allocate a junit file', 'type' => 'test', 'file' => '']],
-                'times' => [],
-                'tests' => 0,
-                'duration_ms' => 0,
-                'status' => 'error',
-            ];
-        }
-
-        $stdout = $junit.'.out';
-        $stderr = $junit.'.err';
-        $command = array_merge(
-            [PHP_BINARY, $binary, '--do-not-cache-result', '--log-junit', $junit],
-            $files,
-        );
-
-        $started = hrtime(true);
-        $process = proc_open($command, [
-            1 => ['file', $stdout, 'w'],
-            2 => ['file', $stderr, 'w'],
-        ], $pipes, $this->root, ChildEnvironment::current());
-
-        if (! is_resource($process)) {
-            @unlink($junit);
-
-            return [
-                'failures' => [['id' => '1', 'message' => 'could not start the test runner', 'type' => 'test', 'file' => '']],
-                'times' => [],
-                'tests' => 0,
-                'duration_ms' => 0,
-                'status' => 'error',
-            ];
-        }
-
-        $deadline = microtime(true) + ($this->timeoutMs / 1000);
-        $timedOut = false;
-        while (proc_get_status($process)['running']) {
-            if (microtime(true) > $deadline) {
-                proc_terminate($process, 9);
-                $timedOut = true;
-                break;
-            }
-            usleep(20000);
-        }
-
-        $status = proc_get_status($process);
-        proc_close($process);
-        $duration = Stats::elapsedMs($started);
-        $parsed = JunitReport::parse((string) @file_get_contents($junit));
-        $errorText = trim((string) @file_get_contents($stderr));
-        @unlink($junit);
-        @unlink($stdout);
-        @unlink($stderr);
-
-        if ($parsed['times'] === []) {
-            $share = (int) max(1, $duration / max(1, count($files)));
-            foreach ($files as $file) {
-                $parsed['times'][$file] = $share;
-            }
-        }
-
-        if ($timedOut) {
-            $parsed['failures'][] = [
-                'id' => '1',
-                'message' => 'test shard timed out',
-                'type' => 'test',
-                'file' => Paths::relative($this->root, $files[0]),
-            ];
-            $parsed['status'] = 'error';
-        } elseif ($parsed['failures'] !== []) {
-            $parsed['status'] = 'failed';
-        } elseif ($status['exitcode'] !== 0 && $parsed['tests'] === 0) {
-            $parsed['failures'][] = [
-                'id' => '1',
-                'message' => $errorText !== '' ? $errorText : 'test runner exited '.$status['exitcode'],
-                'type' => 'test',
-                'file' => Paths::relative($this->root, $files[0]),
-            ];
-            $parsed['status'] = 'error';
-        } else {
-            $parsed['status'] = 'passed';
-        }
-
-        $parsed['duration_ms'] = $duration;
-
-        return $parsed;
+        return $this->workers > 0 ? $this->workers : max(1, min($files, Project::cpuCount()));
     }
 
     /**
+     * One runner process per shard, in parallel, each with its own JUnit file.
+     *
      * @param  list<list<string>>  $shards
      * @return list<array{failures: list<array<string, string>>, times: array<string, int>, tests: int, duration_ms: int, status: string}>
      */
-    private function executeParallel(string $binary, array $shards): array
+    private function executeProcesses(string $binary, array $shards): array
     {
         $jobs = [];
         foreach ($shards as $files) {
@@ -320,89 +233,61 @@ final class AffectedRunner implements SelectiveRunner
 
             $junit = tempnam(sys_get_temp_dir(), 'probe-junit-');
             if ($junit === false) {
+                $jobs[] = ['report' => ShardReport::error('could not allocate a junit file')];
+
                 continue;
             }
 
-            $command = array_merge(
-                [PHP_BINARY, $binary, '--do-not-cache-result', '--log-junit', $junit],
-                $files,
+            $process = proc_open(
+                array_merge([PHP_BINARY, $binary, '--do-not-cache-result', '--log-junit', $junit], $files),
+                [1 => ['file', $junit.'.out', 'w'], 2 => ['file', $junit.'.err', 'w']],
+                $pipes,
+                $this->root,
+                ChildEnvironment::current(),
             );
-            $stdout = $junit.'.out';
-            $stderr = $junit.'.err';
-            $process = proc_open($command, [
-                1 => ['file', $stdout, 'w'],
-                2 => ['file', $stderr, 'w'],
-            ], $pipes, $this->root, ChildEnvironment::current());
 
             if (! is_resource($process)) {
                 @unlink($junit);
+                $jobs[] = ['report' => ShardReport::error('could not start the test runner')];
 
                 continue;
             }
 
-            $jobs[] = [
-                'process' => $process,
-                'junit' => $junit,
-                'stdout' => $stdout,
-                'stderr' => $stderr,
-                'files' => $files,
-                'started' => hrtime(true),
-            ];
+            $jobs[] = ['process' => $process, 'junit' => $junit, 'files' => $files, 'started' => hrtime(true)];
         }
 
+        $deadline = microtime(true) + ($this->timeoutMs / 1000);
         $reports = [];
         foreach ($jobs as $job) {
-            $deadline = microtime(true) + ($this->timeoutMs / 1000);
+            if (isset($job['report'])) {
+                $reports[] = $job['report'];
+
+                continue;
+            }
+
             $timedOut = false;
-            while (proc_get_status($job['process'])['running']) {
+            $status = proc_get_status($job['process']);
+            while ($status['running']) {
                 if (microtime(true) > $deadline) {
                     proc_terminate($job['process'], 9);
                     $timedOut = true;
                     break;
                 }
+
                 usleep(20000);
+                $status = proc_get_status($job['process']);
             }
 
-            $status = proc_get_status($job['process']);
             proc_close($job['process']);
-            $duration = Stats::elapsedMs($job['started']);
-            $parsed = JunitReport::parse((string) @file_get_contents($job['junit']));
-            $errorText = trim((string) @file_get_contents($job['stderr']));
-            @unlink($job['junit']);
-            @unlink($job['stdout']);
-            @unlink($job['stderr']);
-
-            if ($parsed['times'] === []) {
-                $share = (int) max(1, $duration / max(1, count($job['files'])));
-                foreach ($job['files'] as $file) {
-                    $parsed['times'][$file] = $share;
-                }
-            }
-
-            if ($timedOut) {
-                $parsed['failures'][] = [
-                    'id' => '1',
-                    'message' => 'test shard timed out',
-                    'type' => 'test',
-                    'file' => Paths::relative($this->root, $job['files'][0]),
-                ];
-                $parsed['status'] = 'error';
-            } elseif ($parsed['failures'] !== []) {
-                $parsed['status'] = 'failed';
-            } elseif ($status['exitcode'] !== 0 && $parsed['tests'] === 0) {
-                $parsed['failures'][] = [
-                    'id' => '1',
-                    'message' => $errorText !== '' ? $errorText : 'test runner exited '.$status['exitcode'],
-                    'type' => 'test',
-                    'file' => Paths::relative($this->root, $job['files'][0]),
-                ];
-                $parsed['status'] = 'error';
-            } else {
-                $parsed['status'] = 'passed';
-            }
-
-            $parsed['duration_ms'] = $duration;
-            $reports[] = $parsed;
+            $reports[] = ShardReport::build(
+                $this->root,
+                $job['files'],
+                $job['junit'],
+                $job['junit'].'.err',
+                Stats::elapsedMs($job['started']),
+                $timedOut,
+                $timedOut ? 1 : (int) $status['exitcode'],
+            );
         }
 
         return $reports;
@@ -412,7 +297,7 @@ final class AffectedRunner implements SelectiveRunner
      * @param  list<array{failures: list<array<string, string>>, times: array<string, int>, tests: int, duration_ms: int, status: string}>  $reports
      * @param  list<string>  $files
      */
-    private function merge(array $reports, int $started, array $files, string $selection): ProbeResult
+    private function merge(array $reports, int $started, array $files, string $selection, string $mode): ProbeResult
     {
         $status = 'passed';
         $failures = [];
@@ -442,11 +327,12 @@ final class AffectedRunner implements SelectiveRunner
 
         $this->durations->record($times);
 
+        // duration_ms is wall time; shards run side by side, so their sum is a separate number.
         return new ProbeResult(
             status: $status,
-            durationMs: max($duration, Stats::elapsedMs($started)),
+            durationMs: Stats::elapsedMs($started),
             failures: $failures,
-            value: ['ran' => $ran, 'shards' => count($reports), 'selection' => $selection, 'selected' => $this->relative($files)],
+            value: ['ran' => $ran, 'shards' => count($reports), 'shard_ms' => $duration, 'mode' => $mode, 'selection' => $selection, 'selected' => $this->relative($files)],
             hasValue: true,
         );
     }

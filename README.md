@@ -29,6 +29,8 @@ vendor/bin/probe 'return 1 + 1;'
 
 `duration_ms` varies. A green probe with no return value is only status, duration, and an empty `failures` array.
 
+`vendor/bin/probe` is a shell script. A bare snippet (one argument, no flags) goes straight to the live worker over `nc` in about 9 ms, without starting PHP on the client side. Everything else, and any miss (no worker yet, an `nc` without Unix-socket support, a changed source file), runs the PHP client in `bin/probe.php`, which also supervises the worker. `--benchmark` reports both as `shell_median_ms` and `process_median_ms`.
+
 ```bash
 vendor/bin/probe 'use App\Models\User; return User::query()->count();'
 vendor/bin/probe --tool=get_failures
@@ -54,6 +56,16 @@ $result->status; // passed
 ```
 
 Exit codes: `0` passed, `1` failed, `2` error or unsupported.
+
+## MCP
+
+`vendor/bin/probe-mcp` is an MCP server over stdio: one long-lived process per agent session, so a tool call costs one socket round trip to the warm worker and no PHP startup. Register it from the application directory:
+
+```bash
+claude mcp add probe -- "$PWD/vendor/bin/probe-mcp"
+```
+
+The server keeps the project it was started in. Tools: `probe`, `get_failures`, `rerun_failed`, `run_affected`, `probe_browser`, `mutate_check`, `property_check`, `architecture_check`, `formal_check`, `auto_probe`, `status`, `cold`, `stop`. Each returns one text item holding the same compact JSON the CLI prints, with `isError` set whenever the status is not `passed`.
 
 ## Snippets
 
@@ -108,7 +120,7 @@ Response:
 
 ## Warm workers
 
-`vendor/bin/probe` starts `php artisan probe:work` on the first call and reuses it after that. The worker is a normal Artisan process that boots Laravel once, then reads one JSON object per Unix-socket connection.
+`vendor/bin/probe` starts `php artisan probe:work` on the first call and reuses it after that; a bare snippet then travels over `nc` with no PHP process on the client side (see Quick start). The worker is a normal Artisan process that boots Laravel once, then reads one JSON object per Unix-socket connection.
 
 State lives in `storage/framework/probe/` (`active.json`, `session.json`, the socket). Override the location with `PROBE_HOME` and `PROBE_SOCKET` in `.env` so the thin client and Artisan agree. The supervisor lock stops two clients from booting two workers.
 
@@ -144,9 +156,9 @@ On the SQLite used here, `Schema::create` inside a probe rolls back with the tra
 
 `probe_browser` is a smoke check: fetch a page, assert `--contains` and `--absent` text and `--http-status`, and run `goto`, `fill` and `click` steps. Both engines render client-side apps after `domcontentloaded`, so text that only exists in a Vue template is visible. It takes no screenshots, captures no console output, reports no timings and carries no session or auth. It is not UI testing.
 
-Engines: Lightpanda (`lightpanda fetch --dump html <url>`) or Playwright through `resources/playwright-probe.mjs`, which needs Node and the `playwright` npm package installed in the app (`npm install -D playwright`); the package is resolved from the project root. `engine: auto` uses Lightpanda when it is on `PATH`, then Playwright. Set `PROBE_BROWSER=playwright` to force Playwright, or `PROBE_LIGHTPANDA` / `PROBE_PLAYWRIGHT` to an absolute binary or script. Steps always go to Playwright. Lightpanda does not report the HTTP status, so `--http-status` on it returns `status: unsupported`. If neither engine exists, the result is `status: error` with `id: missing_tool` and a message naming what is missing.
+Engines: Lightpanda (`lightpanda fetch --dump html <url>`) or Playwright through `resources/playwright-probe.mjs`, which needs Node and the `playwright` npm package installed in the app (`npm install -D playwright`); the package is resolved from the project root. `engine: auto` uses the persistent Playwright browser when Node and the package exist, then Lightpanda on `PATH`, then the one-shot Playwright script. Set `PROBE_BROWSER=playwright` to force Playwright, or `PROBE_LIGHTPANDA` / `PROBE_PLAYWRIGHT` to an absolute binary or script. Steps always go to Playwright. Lightpanda does not report the HTTP status, so `--http-status` on it returns `status: unsupported`. If neither engine exists, the result is `status: error` with `id: missing_tool` and a message naming what is missing.
 
-Each call launches a browser: about 300 ms on either engine for a small local page, almost all of it browser launch. The client waits for `browser.timeout_ms` (default 8 s) before giving up.
+With Node and the `playwright` package in the app, one browser stays alive next to the worker (`browser.persistent`, default true): the first call launches it (about 300 ms), later calls open a fresh context in that browser (about 50 ms in the worker, 90 ms wall through the shell entry); `value.persistent` and `value.pid` say so, on errors too. Each probe gets its own context, closed when it ends, so a page that timed out on a selector cannot leak into the next call and the browser stays up; the process is replaced only when it dies or stops answering. `PROBE_BROWSER_PERSISTENT=false` goes back to one process per call, which is what Lightpanda always is (about 300 ms, almost all of it launch). The client waits for `browser.timeout_ms` (default 8 s) before giving up.
 
 URLs must be `http` or `https`. A path such as `/login` is joined to `PROBE_BASE_URL` or `APP_URL`. `--contains` and `--absent` are exact substring checks. A green browser result is `failures: []` plus `value.engine`.
 
@@ -155,16 +167,17 @@ URLs must be `http` or `https`. A path such as `/login` is joined to `PROBE_BASE
 `run_affected --paths=app/Models/User.php` builds a file graph under the project (it skips `vendor`):
 
 - the changed file itself when it is a test
-- tests that reference a class defined in the changed file
+- tests that reference a class defined in the changed file, or any project class that reaches it through up to `selective.depth` hops (default 4) of static references in `app/` and `database/`: imports, `new`, static calls, type hints
+- tests that call a route (quoted URI or route name) whose controller is in that set, resolved from the booted router inside the worker
 - tests whose filename contains the source stem (`UserController.php` also matches `User`)
 
-The graph is one hop and name based. A test that reaches the changed class through a controller or a route without naming it is not selected, so a green `run_affected` means "the tests that name this change pass", not "this change is safe". Treat it as a fast first signal and run the suite before calling a change safe.
+The graph is static: it follows names in code, not container bindings, events, string class names or reflection. A test that reaches a change only through one of those is not selected, so a green `run_affected` means "the tests the graph can see pass", not "this change is safe". Treat it as a fast first signal and run the suite before calling a change safe; coverage-map selection (pcov or Xdebug) is the follow-up that closes that gap.
 
-Every result says what ran: `value.selected` lists the test files relative to the project and `value.selection` is `affected` (the graph picked), `all` (the whole suite ran) or `given` (the caller listed tests). When the whole suite is estimated under `selective.full_suite_under_ms` (default 15 s, from recorded durations with 100 ms for a file without one) the whole suite runs instead of a selection, because selecting would then save less than it can hide. `PROBE_FULL_SUITE_UNDER_MS=0` keeps graph selection only. `mutate_check` and `auto_probe` use the same selection.
+Every result says what ran: `duration_ms` is wall time and `value.shard_ms` the sum over shards, `value.selected` lists the test files relative to the project and `value.selection` is `affected` (the graph picked), `all` (the whole suite ran) or `given` (the caller listed tests). When the whole suite is estimated under `selective.full_suite_under_ms` (default 15 s, from recorded durations with 100 ms for a file without one) the whole suite runs instead of a selection, because selecting would then save less than it can hide. `PROBE_FULL_SUITE_UNDER_MS=0` keeps graph selection only. `mutate_check` and `auto_probe` use the same selection.
 
 Empty `--paths` uses `git diff --name-only HEAD` plus untracked files. No paths and no diff is an error. No matching tests is a pass with `value.ran` of 0.
 
-The runner is `vendor/bin/pest` when it exists, otherwise `vendor/bin/phpunit`. Override it with `PROBE_TEST_RUNNER`. Output is read from JUnit, not from the decorated terminal. Set `PROBE_SELECTIVE_WORKERS` to shard independently of the warm pool.
+The runner is `vendor/bin/pest` when it exists, otherwise `vendor/bin/phpunit`. Override it with `PROBE_TEST_RUNNER`. Output is read from JUnit, not from the decorated terminal. Shards run as forked children of the warm worker (`selective.mode` `fork`, the default where `pcntl` exists): a child inherits Composer, the compiled framework and OPcache, drops the worker's `.env` values, and includes the runner in-process with `--no-output`, so no shard pays PHP startup, Composer or a boot. `PROBE_SELECTIVE_MODE=process` starts one runner process per shard instead. `PROBE_SELECTIVE_WORKERS` sets the shard count; the default is one per CPU, capped by the file count. `value.mode` says which ran.
 
 ## Quality
 
@@ -212,6 +225,7 @@ The command prints one JSON object:
 | --- | --- |
 | `cold_ms` | Fresh PHP process, worker not running: process start, Laravel boot, trivial `return 1;` |
 | `process_median_ms` | Fresh PHP process against an already warm worker. This is what an agent pays per call |
+| `shell_median_ms` | The shell entry over `nc` against the warm worker, what a bare snippet pays; absent when `nc` is missing |
 | `roundtrip_median_ms` | Socket round trip from an already running client |
 | `met_target` | `process_median_ms` is under 150 |
 
@@ -222,6 +236,23 @@ Measured on this package's Testbench fixture (Laravel 12 application skeleton, P
 ```
 
 `duration_ms` inside the worker rounded to 0 for `return 1;`. The warm target is the fresh PHP process against an already warm worker (`process_median_ms`), which was 22 ms here. Cold boot on this small app was 87 ms. A larger application spends more time booting the worker. Re-run the command in that app. The integer `duration_ms` field stays whole milliseconds so a green probe stays small.
+
+### A real application
+
+A production Laravel application (Laravel 12.56, 125 Pest tests, PHP 8.4.25, Apple silicon with 12 performance and 4 efficiency cores). Medians of 10 to 20 runs; "before" is 0.6.0 as measured by an independent session, "after" is 0.7.0.
+
+| Path | Before | After | Next best alternative |
+| --- | --- | --- | --- |
+| Bare snippet, PHP client (`process_median_ms`) | 38 ms | 33 ms | `php -r 'echo 1;'` alone is 28 ms |
+| Bare snippet, shell entry (`shell_median_ms`) | | 10 ms | |
+| Snippet through the MCP server, per call | | 1.6 ms | |
+| One database check (`Setting::count()` in the booted app) | 39 ms | 10 ms shell, 1.6 ms MCP | One Pest feature test with `RefreshDatabase`: 143 ms; PHPUnit: 128 ms |
+| Whole suite through `run_affected` | 1938 ms, one Pest process | 900 to 1100 ms, forked shards | `pest --parallel` 1460 to 1490 ms; `pest` 1880 ms |
+| One service change through `run_affected`, guard off | all 125 tests | 6 tests in 156 ms, found through the route hop | |
+| Cold start (worker boot plus migration) | 135 ms | unchanged | |
+| Browser check | about 300 ms per call, either engine | first call 291 ms, then 90 ms wall (50 ms inside the worker) in the kept browser | |
+
+The suite floor is its two slowest tests (737 and 756 ms); shard count, OPcache and a persistent test runner cannot move that, which is why the sharded suite sits around one second regardless of CPU count. Agent loops take the shell entry or the MCP server. `run_affected` shows what it selected and, when the guard says the whole suite is cheap, runs it in about the time of the slowest file.
 
 ## Configuration
 
@@ -241,8 +272,11 @@ Published to `config/probe.php`.
 | `preload` | `[]` | Extra files to compile at boot |
 | `opcache` | `true` | Pass OPcache file-cache flags to the worker |
 | `browser.engine` | `auto` | `auto`, `lightpanda`, or `playwright` |
+| `browser.persistent` | `true` | Keep one Playwright browser alive next to the worker; `PROBE_BROWSER_PERSISTENT` |
 | `selective.runner` | Pest, else PHPUnit | Override with `PROBE_TEST_RUNNER` |
 | `selective.full_suite_under_ms` | 15000 | Run the whole suite when it is estimated under this; `PROBE_FULL_SUITE_UNDER_MS`, 0 keeps graph selection |
+| `selective.mode` | `fork` | Shards as forked worker children, or `process` for one runner process per shard; `PROBE_SELECTIVE_MODE` |
+| `selective.depth` | `4` | Hops of static references a change follows to find impacted classes; `PROBE_SELECTIVE_DEPTH`, 0 for one hop |
 | `mutate.limit` | `8` | Operator flips per `mutate_check` |
 | `property.cases` | `20` | Generated cases per property |
 | `architecture.rules` | `[]` | `path` plus `forbid_use` list |

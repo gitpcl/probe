@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Probe\Phase;
 
+use Closure;
 use Probe\Browser\HybridBrowser;
 use Probe\Formal\SpecRunner;
 use Probe\Intelligence\AutoProbe;
@@ -14,6 +15,7 @@ use Probe\Quality\ArchitectureCheck;
 use Probe\Quality\MutationCheck;
 use Probe\Quality\PropertyCheck;
 use Probe\Result\ProbeResult;
+use Probe\Runner\DatabaseGuard;
 use Probe\Runner\SnippetRunner;
 use Probe\Selective\AffectedRunner;
 use Probe\Selective\DependencyGraph;
@@ -43,9 +45,12 @@ final class Toolbox
         array $config,
         SnippetRunner $snippets,
         string $home,
+        ?DatabaseGuard $database = null,
+        ?Closure $routes = null,
     ) {
-        $graph = new DependencyGraph($root);
-        $workers = max(1, (int) ($config['selective']['workers'] ?? $config['workers'] ?? 1));
+        $graph = new DependencyGraph($root, (int) ($config['selective']['depth'] ?? 4), $routes);
+        $configuredWorkers = $config['selective']['workers'] ?? null;
+        $workers = is_numeric($configuredWorkers) && (int) $configuredWorkers > 0 ? (int) $configuredWorkers : 0;
         $runner = $config['selective']['runner'] ?? null;
         $this->affected = new AffectedRunner(
             $root,
@@ -56,6 +61,8 @@ final class Toolbox
             is_string($runner) && $runner !== '' ? $runner : null,
             (int) ($config['selective']['timeout_ms'] ?? 120000),
             (int) ($config['selective']['full_suite_under_ms'] ?? 15000),
+            (string) ($config['selective']['mode'] ?? 'fork'),
+            $database === null ? null : static fn () => $database->releaseConnections(),
         );
         $this->browser = new HybridBrowser($config, $root);
         $this->mutation = new MutationCheck(

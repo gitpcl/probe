@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Probe\Tests;
 
 use Illuminate\Contracts\Console\Kernel;
+use Probe\ProbeServiceProvider;
 
 final class InstallCommandTest extends TestCase
 {
@@ -35,6 +36,19 @@ final class InstallCommandTest extends TestCase
         if (is_file($config)) {
             unlink($config);
         }
+    }
+
+    public function test_an_older_published_config_still_gets_new_nested_defaults(): void
+    {
+        $merged = ProbeServiceProvider::withDefaults(
+            ['database' => 'sqlite_memory', 'fork' => true, 'selective' => ['runner' => null, 'mode' => 'fork', 'depth' => 4], 'browser' => ['lightpanda_args' => ['fetch', '--dump', 'html']]],
+            ['database' => 'host', 'selective' => ['runner' => '/bin/pest'], 'browser' => ['lightpanda_args' => ['fetch']]],
+        );
+
+        $this->assertSame('host', $merged['database']);
+        $this->assertTrue($merged['fork']);
+        $this->assertSame(['runner' => '/bin/pest', 'mode' => 'fork', 'depth' => 4], $merged['selective']);
+        $this->assertSame(['fetch'], $merged['browser']['lightpanda_args'], 'a published list is kept whole');
     }
 
     public function test_config_defaults_to_sqlite_memory(): void

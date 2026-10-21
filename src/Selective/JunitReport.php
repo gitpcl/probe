@@ -38,10 +38,12 @@ final class JunitReport
                 $name .= '::'.$case->getAttribute('name');
             }
 
-            $file = $case->getAttribute('file');
+            // Pest appends "::test name" to the file attribute; durations are per file, summed over its cases.
+            $file = (string) $case->getAttribute('file');
+            $file = (($at = strpos($file, '::')) !== false) ? substr($file, 0, $at) : $file;
             $seconds = (float) $case->getAttribute('time');
             if ($file !== '') {
-                $times[$file] = (int) round($seconds * 1000);
+                $times[$file] = ($times[$file] ?? 0) + (int) round($seconds * 1000);
             }
 
             $message = self::failureMessage($case);

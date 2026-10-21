@@ -80,6 +80,8 @@ return [
     */
     'browser' => [
         'engine' => env('PROBE_BROWSER', 'auto'),
+        'persistent' => filter_var(env('PROBE_BROWSER_PERSISTENT', true), FILTER_VALIDATE_BOOL),
+        'server' => env('PROBE_BROWSER_SERVER'),
         'lightpanda' => env('PROBE_LIGHTPANDA', 'lightpanda'),
         'playwright' => env('PROBE_PLAYWRIGHT', 'playwright'),
         'node' => env('PROBE_NODE', 'node'),
@@ -92,12 +94,17 @@ return [
     | run_affected. runner is an optional Pest or PHPUnit binary.
     | workers null follows the warm pool size and is the shard count.
     | full_suite_under_ms runs every test when the whole suite is estimated under it; 0 keeps graph selection only.
+    | mode fork runs shards as forked children of the warm worker (no PHP start, no Composer, no boot per shard);
+    | process starts a runner process per shard. workers null is one shard per CPU, capped by the file count.
+    | depth is how many hops of static references (use, new, ::, type hints) a change follows through app/ and database/.
     */
     'selective' => [
         'runner' => env('PROBE_TEST_RUNNER'),
         'workers' => env('PROBE_SELECTIVE_WORKERS'),
         'timeout_ms' => (int) env('PROBE_SELECTIVE_TIMEOUT_MS', 120000),
         'full_suite_under_ms' => (int) env('PROBE_FULL_SUITE_UNDER_MS', 15000),
+        'mode' => env('PROBE_SELECTIVE_MODE', 'fork'),
+        'depth' => (int) env('PROBE_SELECTIVE_DEPTH', 4),
     ],
 
     'mutate' => [

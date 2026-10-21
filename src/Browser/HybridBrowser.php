@@ -16,11 +16,23 @@ use Probe\Support\Stats;
  */
 final class HybridBrowser implements BrowserProbe
 {
+    private ?PlaywrightSidecar $sidecar = null;
+
+    /** @var list<string>|null */
+    private ?array $sidecarCommand = null;
+
     /** @param  array<string, mixed>  $config */
     public function __construct(
         private readonly array $config = [],
         private readonly string $root = '',
     ) {}
+
+    /** Release the persistent browser, if one was started. */
+    public function stop(): void
+    {
+        $this->sidecar?->stop();
+        $this->sidecar = null;
+    }
 
     /** @param  array<string, mixed>  $request */
     public function run(array $request): array
@@ -47,8 +59,11 @@ final class HybridBrowser implements BrowserProbe
             $payload = json_encode([
                 'url' => $url,
                 'steps' => is_array($request['steps'] ?? null) ? $request['steps'] : [],
+                'timeout_ms' => $timeout,
             ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-            $result = Process::run($plan['command'], $this->root !== '' ? $this->root : null, $payload, $timeout);
+            $result = isset($plan['sidecar'])
+                ? $this->sidecar($plan['command'])->request($payload, $timeout)
+                : Process::run($plan['command'], $this->root !== '' ? $this->root : null, $payload, $timeout);
         } else {
             $args = $this->config['browser']['lightpanda_args'] ?? ['fetch', '--dump', 'html'];
             if (! is_array($args)) {
@@ -59,16 +74,21 @@ final class HybridBrowser implements BrowserProbe
         }
 
         if ($result['exit'] === 127) {
-            return ProbeResult::error('missing_tool', trim($plan['engine'].' was not found'));
+            return $this->errorResult(
+                isset($plan['sidecar']) ? 'browser' : 'missing_tool',
+                trim($result['stderr']) !== '' ? $result['stderr'] : $plan['engine'].' was not found',
+                $result['duration_ms'],
+                $plan,
+            );
         }
 
         if ($result['exit'] === 124) {
-            return ProbeResult::error('timeout', 'browser probe timed out', $result['duration_ms']);
+            return $this->errorResult('timeout', 'browser probe timed out', $result['duration_ms'], $plan);
         }
 
         $page = $this->interpret($result['stdout'], $result['exit'], $result['stderr']);
         if ($page['error'] !== null && $page['body'] === '') {
-            return ProbeResult::error('browser', $page['error'], $result['duration_ms']);
+            return $this->errorResult('browser', $page['error'], $result['duration_ms'], $plan);
         }
 
         if (is_numeric($request['http_status'] ?? null) && $page['http_status'] === null) {
@@ -88,23 +108,28 @@ final class HybridBrowser implements BrowserProbe
 
         $failures = $this->assertions($request, $url, $page['body'], $page['http_status']);
         $duration = max($result['duration_ms'], Stats::elapsedMs($started));
+        $value = ['engine' => $plan['engine']];
+        if (isset($plan['sidecar'])) {
+            $value['persistent'] = true;
+            $value['pid'] = $page['pid'];
+        }
 
         if ($failures !== []) {
             return new ProbeResult(
                 status: 'failed',
                 durationMs: $duration,
                 failures: $failures,
-                value: ['engine' => $plan['engine']],
+                value: $value,
                 hasValue: true,
             );
         }
 
-        return ProbeResult::passed($duration, ['engine' => $plan['engine']], true);
+        return ProbeResult::passed($duration, $value, true);
     }
 
     /**
      * @param  array<string, mixed>  $request
-     * @return array{engine: string, command: list<string>}|array{error: string}
+     * @return array{engine: string, command: list<string>, sidecar?: true}|array{error: string}
      */
     private function plan(array $request): array
     {
@@ -113,9 +138,15 @@ final class HybridBrowser implements BrowserProbe
             : (string) ($this->config['browser']['engine'] ?? 'auto');
         $steps = is_array($request['steps'] ?? null) && $request['steps'] !== [];
         $lightpanda = $this->binary((string) ($this->config['browser']['lightpanda'] ?? 'lightpanda'));
+        $sidecar = $this->sidecarCommand();
         $playwright = $this->playwrightCommand();
+        $persistent = $sidecar === null ? null : ['engine' => 'playwright', 'command' => $sidecar, 'sidecar' => true];
 
         if ($steps) {
+            if ($persistent !== null) {
+                return $persistent;
+            }
+
             if ($playwright === null) {
                 return ['error' => 'browser steps need playwright: '.$this->playwrightMissing()];
             }
@@ -132,11 +163,19 @@ final class HybridBrowser implements BrowserProbe
         }
 
         if ($engine === 'playwright') {
+            if ($persistent !== null) {
+                return $persistent;
+            }
+
             if ($playwright === null) {
                 return ['error' => $this->playwrightMissing()];
             }
 
             return ['engine' => 'playwright', 'command' => $playwright];
+        }
+
+        if ($persistent !== null) {
+            return $persistent;
         }
 
         if ($lightpanda !== null) {
@@ -186,6 +225,73 @@ final class HybridBrowser implements BrowserProbe
         return null;
     }
 
+    /**
+     * An error result that still says which engine answered and whether it is the kept browser.
+     *
+     * @param  array{engine: string, command: list<string>, sidecar?: true}  $plan
+     */
+    private function errorResult(string $id, string $message, int $durationMs, array $plan): ProbeResult
+    {
+        $value = ['engine' => $plan['engine']];
+        if (isset($plan['sidecar'])) {
+            $value['persistent'] = true;
+        }
+
+        return new ProbeResult(
+            status: 'error',
+            durationMs: $durationMs,
+            failures: [new Failure(id: $id, message: self::plain($message))],
+            value: $value,
+            hasValue: true,
+        );
+    }
+
+    /** Playwright decorates its messages with ANSI escapes; an agent reads JSON. */
+    private static function plain(string $text): string
+    {
+        $plain = (string) preg_replace('/\x1b\[[0-9;]*[A-Za-z]/', '', $text);
+
+        return trim((string) preg_replace('/\s+/', ' ', $plain));
+    }
+
+    /**
+     * The persistent browser command: the shipped Playwright server with Node and the
+     * npm package in the app, or a configured server script (tests use a PHP one).
+     *
+     * @return list<string>|null
+     */
+    private function sidecarCommand(): ?array
+    {
+        if (! (bool) ($this->config['browser']['persistent'] ?? true)) {
+            return null;
+        }
+
+        $configured = $this->config['browser']['server'] ?? null;
+        if (is_string($configured) && $configured !== '' && is_file($configured)) {
+            return Process::phpCommand($configured);
+        }
+
+        $node = $this->binary($this->nodeName());
+        $script = dirname(__DIR__, 2).'/resources/playwright-server.mjs';
+        if ($node !== null && is_file($script) && is_dir($this->playwrightModule())) {
+            return [$node, $script];
+        }
+
+        return null;
+    }
+
+    /** @param  list<string>  $command */
+    private function sidecar(array $command): PlaywrightSidecar
+    {
+        if ($this->sidecar === null || $this->sidecarCommand !== $command) {
+            $this->sidecar?->stop();
+            $this->sidecar = new PlaywrightSidecar($command, $this->root !== '' ? $this->root : (string) getcwd());
+            $this->sidecarCommand = $command;
+        }
+
+        return $this->sidecar;
+    }
+
     private function nodeName(): string
     {
         return (string) ($this->config['browser']['node'] ?? 'node');
@@ -227,7 +333,7 @@ final class HybridBrowser implements BrowserProbe
         return $url;
     }
 
-    /** @return array{body: string, http_status: int|null, error: string|null} */
+    /** @return array{body: string, http_status: int|null, error: string|null, pid: int|null} */
     private function interpret(string $stdout, int $exit, string $stderr): array
     {
         $trim = trim($stdout);
@@ -238,6 +344,7 @@ final class HybridBrowser implements BrowserProbe
                     'body' => (string) ($json['body'] ?? $json['html'] ?? ''),
                     'http_status' => isset($json['http_status']) ? (int) $json['http_status'] : null,
                     'error' => isset($json['error']) && is_string($json['error']) && $json['error'] !== '' ? $json['error'] : null,
+                    'pid' => isset($json['pid']) && is_numeric($json['pid']) ? (int) $json['pid'] : null,
                 ];
             }
         }
@@ -245,10 +352,10 @@ final class HybridBrowser implements BrowserProbe
         if ($exit !== 0 && trim($stdout) === '') {
             $message = trim($stderr) !== '' ? trim(preg_replace('/\s+/', ' ', $stderr) ?? $stderr) : 'browser exit '.$exit;
 
-            return ['body' => '', 'http_status' => null, 'error' => $message];
+            return ['body' => '', 'http_status' => null, 'error' => $message, 'pid' => null];
         }
 
-        return ['body' => $stdout, 'http_status' => null, 'error' => null];
+        return ['body' => $stdout, 'http_status' => null, 'error' => null, 'pid' => null];
     }
 
     /**

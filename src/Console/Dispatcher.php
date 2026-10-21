@@ -188,9 +188,9 @@ final class Dispatcher
     public function benchmark(string $root, int $samples = 20): array
     {
         $samples = max(1, $samples);
-        $script = dirname(__DIR__, 2).'/bin/probe';
+        $script = dirname(__DIR__, 2).'/bin/probe.php';
         if (! is_file($script)) {
-            throw new RuntimeException('Probe could not find bin/probe.');
+            throw new RuntimeException('Probe could not find bin/probe.php.');
         }
 
         $this->pool->stop($root);
@@ -199,6 +199,15 @@ final class Dispatcher
         $process = [];
         for ($index = 0; $index < $samples; $index++) {
             $process[] = $this->timeProcess($root, $script);
+        }
+
+        // The shell entry answers a bare snippet over nc without starting PHP on the client side.
+        $shell = [];
+        $fast = dirname(__DIR__, 2).'/bin/probe';
+        if (is_executable($fast) && trim((string) shell_exec('command -v nc 2>/dev/null')) !== '') {
+            for ($index = 0; $index < $samples; $index++) {
+                $shell[] = $this->timeProcess($root, $fast, viaShell: true);
+            }
         }
 
         $roundtripUs = [];
@@ -217,7 +226,7 @@ final class Dispatcher
 
         $processMedian = Stats::median($process);
 
-        return [
+        $report = [
             'status' => $processMedian < Probe::WARM_TARGET_MS ? 'passed' : 'failed',
             'cold_ms' => $coldMs,
             'process_median_ms' => $processMedian,
@@ -230,11 +239,18 @@ final class Dispatcher
             'met_target' => $processMedian < Probe::WARM_TARGET_MS,
             'php' => PHP_VERSION,
         ];
+
+        if ($shell !== []) {
+            $report['shell_median_ms'] = Stats::median($shell);
+            $report['shell_min_ms'] = min($shell);
+        }
+
+        return $report;
     }
 
-    private function timeProcess(string $root, string $script): int
+    private function timeProcess(string $root, string $script, bool $viaShell = false): int
     {
-        $command = escapeshellarg(PHP_BINARY).' '.escapeshellarg($script).' '.escapeshellarg('return 1;');
+        $command = ($viaShell ? '' : escapeshellarg(PHP_BINARY).' ').escapeshellarg($script).' '.escapeshellarg('return 1;');
         $started = hrtime(true);
         $process = proc_open($command, [
             0 => ['pipe', 'r'],
