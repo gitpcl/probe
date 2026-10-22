@@ -31,6 +31,7 @@ final class RequestHandler
         private readonly int $recycleAfter = 500,
         private readonly ?Toolbox $toolbox = null,
         private readonly ?SourceWatch $watch = null,
+        private readonly int $maxFailures = 20,
     ) {}
 
     /**
@@ -71,6 +72,12 @@ final class RequestHandler
         $payload = $tool === 'get_failures'
             ? $this->encoder->detailed($result)
             : $this->encoder->compact($result);
+
+        // The session keeps every failure for get_failures --id; the run result lists the first few.
+        if ($tool !== 'get_failures' && $this->maxFailures > 0 && count($result->failures) > $this->maxFailures) {
+            $payload['failures'] = array_slice($payload['failures'], 0, $this->maxFailures);
+            $payload['failures_total'] = count($result->failures);
+        }
 
         if ($tool === 'ping') {
             $payload['database'] = $this->database->mode();

@@ -135,6 +135,42 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame('app/Thing.php', $handler->handle(['tool' => 'ping'])['stale']);
     }
 
+    public function test_a_run_result_lists_the_first_failures_and_the_session_keeps_them_all(): void
+    {
+        $root = sys_get_temp_dir().'/probe-handler-root-'.bin2hex(random_bytes(4));
+        mkdir($root, 0775, true);
+        file_put_contents($root.'/tsconfig.json', '{}');
+        $lines = [];
+        for ($index = 1; $index <= 25; $index++) {
+            $lines[] = 'src/file'.$index.'.ts(1,1): error TS1000: problem '.$index;
+        }
+        putenv('PROBE_STUB_TS='.implode('\n', $lines));
+        $handler = $this->handler(new Toolbox($root, [
+            'types' => ['binary' => dirname(__DIR__).'/tests/Fixtures/tsc-stub.sh', 'timeout_ms' => 5000],
+            'intelligence' => ['llm' => false],
+        ], new SnippetRunner(new DatabaseGuard), $this->home()));
+
+        try {
+            $run = $handler->handle(['tool' => 'type_check']);
+            $this->assertSame('failed', $run['status'], json_encode($run));
+            $this->assertCount(20, $run['failures']);
+            $this->assertSame(25, $run['failures_total']);
+            $this->assertSame(25, $run['value']['errors']);
+
+            $last = $handler->handle(['tool' => 'get_failures', 'id' => '25']);
+            $this->assertSame('25', $last['failures'][0]['id']);
+            $this->assertSame('src/file25.ts', $last['failures'][0]['file']);
+            $this->assertSame(['shown' => 1, 'total' => 25], $last['value']);
+            $this->assertArrayNotHasKey('failures_total', $last);
+
+            $one = $handler->handle(['tool' => 'probe', 'code' => 'throw new RuntimeException("x");']);
+            $this->assertCount(1, $one['failures']);
+            $this->assertArrayNotHasKey('failures_total', $one, 'a short list is not annotated');
+        } finally {
+            putenv('PROBE_STUB_TS');
+        }
+    }
+
     private function handler(?Toolbox $toolbox = null, ?SourceWatch $watch = null, ?SessionStore $session = null): RequestHandler
     {
         $database = new DatabaseGuard;

@@ -98,6 +98,29 @@ final class StaticCheckTest extends TestCase
         $this->assertStringContainsString('--level=8', (string) file_get_contents($log));
     }
 
+    public function test_with_a_neon_the_selected_scopes_run_the_configured_paths_and_filter_the_report(): void
+    {
+        $root = $this->project();
+        $real = realpath($root) ?: $root;
+        file_put_contents($root.'/phpstan.neon', "parameters:\n    level: 7\n    paths:\n        - app\n");
+        $log = $root.'/args.log';
+        putenv('PROBE_STUB_LOG='.$log);
+        putenv('PROBE_STUB_ERRORS='.$real.'/app/Models/Unrelated.php|3|Unrelated is wrong.;'.$real.'/app/Services/Pricing.php|12|Pricing is wrong.;'.$real.'/app/Http/Controllers/CartController.php|4|Cart is wrong.');
+
+        $affected = $this->check($root)->run(['paths' => 'app/Services/Pricing.php']);
+
+        $this->assertSame('failed', $affected->status, $affected->toJson());
+        $this->assertSame(['scope' => 'affected', 'errors' => 2, 'total' => 3, 'files' => 2], $affected->value);
+        $this->assertSame(['1', '2'], array_map(static fn ($failure) => $failure->id, $affected->failures), 'ids follow the filtered list');
+        $this->assertSame(['app/Services/Pricing.php', 'app/Http/Controllers/CartController.php'], array_map(static fn ($failure) => $failure->file, $affected->failures));
+        $this->assertStringNotContainsString('.php', (string) file_get_contents($log), 'the configured paths run so the result cache applies');
+
+        $changed = $this->check($root)->run(['paths' => 'app/Services/Pricing.php', 'scope' => 'changed']);
+
+        $this->assertSame(['scope' => 'changed', 'errors' => 1, 'total' => 3, 'files' => 1], $changed->value);
+        $this->assertSame('Pricing is wrong. at app/Services/Pricing.php:12', $changed->failures[0]->message);
+    }
+
     public function test_scope_all_runs_the_projects_own_paths_and_needs_a_neon(): void
     {
         $root = $this->project();

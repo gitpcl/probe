@@ -68,7 +68,7 @@ final class TypeCheckTest extends TestCase
         $missing = (new TypeCheck($root))->run([]);
         $this->assertSame('error', $missing->status);
         $this->assertSame('missing_tool', $missing->failures[0]->id);
-        $this->assertStringContainsString('npm install --save-dev typescript vue-tsc', $missing->failures[0]->message);
+        $this->assertStringContainsString('npm install --save-dev typescript@5 vue-tsc', $missing->failures[0]->message);
 
         unlink($root.'/tsconfig.json');
         $noProject = $this->check($root)->run([]);
@@ -99,7 +99,9 @@ final class TypeCheckTest extends TestCase
         $this->assertSame('error', $crash->status);
         $this->assertSame('tsc', $crash->failures[0]->id);
         $this->assertStringContainsString('exited 9', $crash->failures[0]->message);
-        $this->assertStringContainsString('bad option', $crash->failures[0]->message);
+        $this->assertStringContainsString("Package subpath './lib/tsc' is not defined", $crash->failures[0]->message, 'the cause on top of the trace survives the cut');
+        $this->assertStringContainsString('vue-tsc/index.js:64:20', $crash->failures[0]->message, 'and so does the tail');
+        $this->assertLessThanOrEqual(400, strlen($crash->failures[0]->message));
 
         putenv('PROBE_STUB_TSC');
         putenv('PROBE_STUB_SLEEP_MS=700');

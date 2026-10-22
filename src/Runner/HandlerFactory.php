@@ -32,6 +32,7 @@ final class HandlerFactory
             (int) ($config['recycle_after'] ?? 500),
             new Toolbox($app->basePath(), $config, $snippets, $home, $database, static fn (): array => RouteMap::fromRouter($app->make('router'))),
             new SourceWatch($app->basePath()),
+            (int) ($config['max_failures'] ?? 20),
         );
     }
 }

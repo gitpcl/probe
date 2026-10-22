@@ -62,6 +62,12 @@ return [
     'max_value_bytes' => (int) env('PROBE_MAX_VALUE_BYTES', 1024),
 
     /*
+    | Failures listed in a run result. The rest stay in the session, so
+    | get_failures --id=N opens any of them; failures_total says how many there were.
+    */
+    'max_failures' => (int) env('PROBE_MAX_FAILURES', 20),
+
+    /*
     | Extra absolute paths compiled into OPcache when a worker boots.
     | The package also ships preload.php for opcache.preload.
     */

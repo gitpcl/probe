@@ -55,7 +55,7 @@ $result = Probe::run('return 1 + 1;');
 $result->status; // passed
 ```
 
-Exit codes: `0` passed, `1` failed, `2` error or unsupported.
+Exit codes: `0` passed, `1` failed, `2` error or unsupported. An unknown `--option` is an `error` with id `usage` rather than part of the snippet; code that starts with `--` goes after a bare `--`.
 
 ## MCP
 
@@ -86,6 +86,7 @@ Passing output is a single JSON object. The green form is about a dozen tokens, 
 | `failures` | Empty when green. Compact failures are `id` and `message` |
 | `value` | Snippet return value, or a small payload such as `ran`, `engine`, `killed`, or `selector` |
 | `rerun` | `false` when `rerun_failed` had nothing to run |
+| `failures_total` | Present when the list was cut at `max_failures` (default 20); every row stays reachable through `get_failures --id=N` |
 
 `get_failures` returns the first failure of the last result in full (`type`, `file`, `line`, `trace`) plus `value.total`; `--id=N` opens another one. Traces leave out Probe's own frames. That is the progressive-detail hook. The compact probe path does not include the trace.
 
@@ -206,13 +207,13 @@ A missing binary is `missing_tool`. A counterexample is `status: failed` with a 
 
 ## Static analysis
 
-`static_check --paths=app/Services/Pricing.php` runs PHPStan (Larastan is a PHPStan extension and needs nothing extra here) over the changed files and every file that references them through `use`, `new`, static calls and type hints, up to `selective.depth` hops: the set a signature change can break. `--scope=changed` analyses only the given files, `--scope=all` leaves the paths to `phpstan.neon`. No paths means the git diff.
+`static_check --paths=app/Services/Pricing.php` runs PHPStan (Larastan is a PHPStan extension and needs nothing extra here) and reports the changed files and every file that references them through `use`, `new`, static calls and type hints, up to `selective.depth` hops: the set a signature change can break. `--scope=changed` reports only the given files, `--scope=all` the whole project. No paths means the git diff.
 
 ```json
-{"status":"failed","duration_ms":2140,"failures":[{"id":"1","message":"Parameter #1 $cents of method total() expects int, string given. at app/Http/Controllers/CartController.php:31"}],"value":{"scope":"affected","errors":1,"files":3}}
+{"status":"failed","duration_ms":640,"failures":[{"id":"1","message":"Parameter #1 $cents of method total() expects int, string given. at app/Http/Controllers/CartController.php:31"}],"value":{"scope":"affected","errors":1,"total":4,"files":3}}
 ```
 
-`get_failures` adds `file` and `line`. The project's `phpstan.neon` owns the level, baseline and extensions; `--level` overrides it for one run, and `static.level` (default 5) applies only when there is no neon. The binary is `vendor/bin/phpstan` or `PROBE_PHPSTAN`; missing is `missing_tool` with the install line (`composer require --dev larastan/larastan`). PHPStan's own result cache makes repeat runs fast; Probe keeps no daemon for it, since none exists outside PHPStan Pro.
+`get_failures` adds `file` and `line`. The project's `phpstan.neon` owns the level, baseline, extensions and paths; `--level` overrides the level for one run, and `static.level` (default 5) applies only when there is no neon. Files named on PHPStan's command line switch its result cache off, so with a neon every scope runs the configured paths (the cached, incremental run) and `affected` and `changed` filter the report: `value.errors` is what is shown, `value.total` the whole report, `value.files` the selection. A selected file outside the neon's paths is therefore not analysed. Without a neon the selected files are passed explicitly and every run is a cold one. The binary is `vendor/bin/phpstan` or `PROBE_PHPSTAN`; missing is `missing_tool` with the install line (`composer require --dev larastan/larastan`). Probe keeps no daemon for PHPStan, since none exists outside PHPStan Pro.
 
 ## TypeScript
 
@@ -222,7 +223,7 @@ A missing binary is `missing_tool`. A counterexample is `status: failed` with a 
 {"status":"failed","duration_ms":6800,"failures":[{"id":"1","message":"TS2322: Type 'string' is not assignable to type 'number'. at resources/js/Pages/Cart.vue:14"}],"value":{"errors":1,"total":1,"binary":"vue-tsc","project":"tsconfig.json"}}
 ```
 
-A missing binary is `missing_tool` (`npm install --save-dev typescript vue-tsc`); a missing tsconfig is `error` `tsconfig`. tsc's incremental mode does the caching.
+A missing binary is `missing_tool` (`npm install --save-dev typescript@5 vue-tsc`; vue-tsc 3 does not load TypeScript 7); a missing tsconfig is `error` `tsconfig`. tsc's incremental mode does the caching.
 
 ## Contracts
 
@@ -232,7 +233,7 @@ A missing binary is `missing_tool` (`npm install --save-dev typescript vue-tsc`)
 {"status":"failed","duration_ms":210,"failures":[{"id":"1","message":"GET /api/users/{id} 200: $.data.email: expected string, got null"},{"id":"2","message":"POST /api/orders: expected 201, got 500 Server Error"}],"value":{"operations":12,"checked":10,"failed":2,"selection":"all","spec":"openapi.yaml","skipped":[{"operation":"DELETE /api/orders/{id}","reason":"no example for path parameter id"}]}}
 ```
 
-`--routes='GET /api/users/{id},/api/orders'` checks those operations; `--paths=app/Http/Controllers/UserController.php` checks the operations whose routes that controller, and whatever reaches it through the reference graph, serves, read from the booted router. An operation without a path example, a required-body example or a JSON `2xx` schema is listed under `skipped` rather than counted green, and a run where nothing could be sent is an error. `--auth=<user id or email>` (or `contract.auth`) logs that user in on the default guard first; `contract.headers` go on every request; `contract.limit` (default 10) caps messages per operation.
+Each request runs with the application marked as the `testing` environment, as Laravel's own HTTP tests do, so the CSRF middleware steps aside and web `POST` routes need no exemption; the fork discards the change. `--routes='GET /api/users/{id},/api/orders'` checks those operations; `--paths=app/Http/Controllers/UserController.php` checks the operations whose routes that controller, and whatever reaches it through the reference graph, serves, read from the booted router. An operation without a path example, a required-body example or a JSON `2xx` schema is listed under `skipped` rather than counted green, and a run where nothing could be sent is an error. `--auth=<user id or email>` (or `contract.auth`) logs that user in on the default guard first; `contract.headers` go on every request; `contract.limit` (default 10) caps messages per operation.
 
 ## Auto probes
 
@@ -304,6 +305,18 @@ Selection and browser:
 | Browser check, first call | 619 ms, 291 ms in an earlier run; the launch dominates and varies | 1 each |
 | Browser check, kept browser | 101 to 104 ms wall, 55 to 57 ms inside the worker, same pid | 4 |
 
+Static, type and contract checks, same application and tester, 0.8.1 on 2026-10-22, after Larastan (PHPStan 2.3.1, level 5), `typescript@5` with `vue-tsc` 3.3 and a two-operation `openapi.json` were added there. Times are inside the worker; three runs each unless stated:
+
+| Check | Probe | Raw tool |
+| --- | --- | --- |
+| `static_check` affected, 11 files, 11 of 26 findings shown, warm cache | 608 to 639 ms | `phpstan analyse` 625 to 627 ms |
+| `static_check` all, 26 findings, warm cache | 614 to 616 ms | same |
+| `static_check`, result cache cleared first | 1180 to 1696 ms | 1329 ms, one run |
+| `type_check`, 21 files, 202 diagnostics | 729 to 741 ms | `vue-tsc --noEmit` 718 to 748 ms |
+| `contract_check`, two operations, one run | 56 ms; one route through `--routes` 5 ms | |
+
+PHPStan's result cache is the limiter. Files named on its command line switch the cache off, so every scope runs the configured paths and filters the report; 0.8.0 passed the files and paid 960 to 990 ms on each affected run. The `type_check` result is 2.7 KB for 202 diagnostics with the 20-row cap, 27 KB without it.
+
 A probe is a throwaway check, not a test file that stays in the repo: the speed is for the agent's inner loop, and the suite still runs before a change is called safe. Agent loops take the MCP server or the shell entry. `run_affected` shows what it selected and, when the guard says the whole suite is cheap, runs it in about the time of the slowest file. `static_check`, `type_check` and `contract_check` are bound by the tool they wrap: PHPStan's result cache and tsc's incremental mode do the caching, and what Probe adds is the selection (the files a change touches, the routes a controller change reaches) and the result shape.
 
 ## Configuration
@@ -321,6 +334,7 @@ Published to `config/probe.php`.
 | `timeout_ms` | `5000` | Per-probe wall clock. `pcntl` alarms at one-second resolution |
 | `recycle_after` | `500` | Probes before the worker exits |
 | `max_value_bytes` | `1024` | Largest returned value kept inline |
+| `max_failures` | `20` | Failures listed in a run result; the rest stay in the session for `get_failures --id`; `PROBE_MAX_FAILURES` |
 | `preload` | `[]` | Extra files to compile at boot |
 | `opcache` | `true` | Pass OPcache file-cache flags to the worker |
 | `browser.engine` | `auto` | `auto`, `lightpanda`, or `playwright` |

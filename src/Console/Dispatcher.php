@@ -53,6 +53,10 @@ final class Dispatcher
             return 0;
         }
 
+        if ($invocation->error !== null) {
+            return $this->emitError('usage', $invocation->error);
+        }
+
         try {
             $root = Project::find();
         } catch (RuntimeException $exception) {

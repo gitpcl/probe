@@ -65,12 +65,15 @@ final class StaticCheck
             }
         }
 
+        // Files named on the command line switch PHPStan's result cache off, so with a
+        // neon the configured paths run (incremental) and the report is filtered instead.
+        $filter = $files !== [] && $this->hasConfig() ? $this->relative($files) : [];
         $level = $this->level($request);
         $command = array_merge(
             Process::phpCommand($binary),
             ['analyse', '--error-format=json', '--no-progress', '--no-interaction', '--no-ansi', '--memory-limit='.$this->memoryLimit()],
             $level === null ? [] : ['--level='.$level],
-            $files === [] ? [] : array_merge(['--'], $files),
+            $files === [] || $filter !== [] ? [] : array_merge(['--'], $files),
         );
         $timeout = (int) ($this->config['timeout_ms'] ?? 120000);
         $result = Process::run($command, $this->root, null, $timeout);
@@ -85,13 +88,15 @@ final class StaticCheck
 
             return ProbeResult::error(
                 'phpstan',
-                'phpstan exited '.$result['exit'].($detail === '' ? '' : ': '.self::tail($detail)),
+                'phpstan exited '.$result['exit'].($detail === '' ? '' : ': '.Process::excerpt($detail)),
                 $result['duration_ms'],
             );
         }
 
-        $failures = $this->failures($report);
+        $all = $this->failures($report);
+        $failures = $filter === [] ? $all : $this->within($all, $filter);
         $value = ['scope' => $scope, 'errors' => count($failures)]
+            + ($filter === [] ? [] : ['total' => count($all)])
             + ($files === [] ? [] : ['files' => count($files)])
             + ($level === null ? [] : ['level' => $level]);
 
@@ -140,6 +145,48 @@ final class StaticCheck
         }
 
         return $failures;
+    }
+
+    /**
+     * @param  list<string>  $files  absolute
+     * @return array<string, true> keyed by root-relative path
+     */
+    private function relative(array $files): array
+    {
+        $keys = [];
+        foreach ($files as $file) {
+            $keys[Paths::relative($this->root, $file)] = true;
+        }
+
+        return $keys;
+    }
+
+    /**
+     * The failures inside the given files, renumbered so get_failures ids match
+     * the list. A report-level error without a file is kept.
+     *
+     * @param  list<Failure>  $failures
+     * @param  array<string, true>  $files
+     * @return list<Failure>
+     */
+    private function within(array $failures, array $files): array
+    {
+        $kept = [];
+        foreach ($failures as $failure) {
+            if ($failure->file !== null && ! isset($files[$failure->file])) {
+                continue;
+            }
+
+            $kept[] = new Failure(
+                id: (string) (count($kept) + 1),
+                message: $failure->message,
+                type: $failure->type,
+                file: $failure->file,
+                line: $failure->line,
+            );
+        }
+
+        return $kept;
     }
 
     private function binary(): ?string
@@ -210,12 +257,5 @@ final class StaticCheck
         }
 
         return array_values(array_unique($files));
-    }
-
-    private static function tail(string $text): string
-    {
-        $text = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
-
-        return strlen($text) <= 300 ? $text : '...'.substr($text, -297);
     }
 }

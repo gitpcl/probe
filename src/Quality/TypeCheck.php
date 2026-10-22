@@ -38,7 +38,7 @@ final class TypeCheck
 
         $binary = $this->binary();
         if ($binary === null) {
-            return ProbeResult::error('missing_tool', 'vue-tsc or tsc was not found under node_modules/.bin; npm install --save-dev typescript vue-tsc, or set PROBE_TSC');
+            return ProbeResult::error('missing_tool', 'vue-tsc or tsc was not found under node_modules/.bin; npm install --save-dev typescript@5 vue-tsc, or set PROBE_TSC');
         }
 
         $name = basename($binary);
@@ -53,7 +53,7 @@ final class TypeCheck
         if ($diagnostics === [] && $result['exit'] !== 0) {
             $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
 
-            return ProbeResult::error('tsc', $name.' exited '.$result['exit'].($detail === '' ? '' : ': '.self::tail($detail)), $result['duration_ms']);
+            return ProbeResult::error('tsc', $name.' exited '.$result['exit'].($detail === '' ? '' : ': '.Process::excerpt($detail)), $result['duration_ms']);
         }
 
         $filter = $this->filter($request);
@@ -178,12 +178,5 @@ final class TypeCheck
         }
 
         return false;
-    }
-
-    private static function tail(string $text): string
-    {
-        $text = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
-
-        return strlen($text) <= 300 ? $text : '...'.substr($text, -297);
     }
 }

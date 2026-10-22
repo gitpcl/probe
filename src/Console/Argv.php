@@ -40,6 +40,7 @@ final class Argv
         $spec = null;
         $routes = null;
         $auth = null;
+        $error = null;
         $positionals = [];
 
         $args = array_slice($argv, 1);
@@ -180,7 +181,8 @@ final class Argv
                     $auth = $value;
                     break;
                 default:
-                    $positionals[] = $arg;
+                    // A typo should be a usage error, not a PHP parse error in the snippet.
+                    $error ??= 'unknown option '.$name.'; snippet code goes last or after --, see --help';
             }
         }
 
@@ -215,6 +217,7 @@ final class Argv
             spec: $spec,
             routes: $routes,
             auth: $auth,
+            error: $error,
         );
     }
 }

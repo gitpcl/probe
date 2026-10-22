@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Probe\Tests;
 
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
@@ -36,6 +38,7 @@ final class ContractCheckTest extends TestCase
             throw new \RuntimeException('boom');
         });
         Route::get('/api/html', static fn (): string => '<html>hi</html>');
+        Route::middleware([StartSession::class, ValidateCsrfToken::class])->post('/api/forms', static fn (): array => ['data' => ['ok' => true]]);
         Route::post('/api/notes', static function (): array {
             DB::table('notes')->insert(['body' => (string) request()->json('body')]);
 
@@ -134,7 +137,23 @@ final class ContractCheckTest extends TestCase
         $missing = $this->check()->run([]);
         $this->assertSame('error', $missing->status);
         $this->assertSame('spec', $missing->failures[0]->id);
-        $this->assertStringContainsString('docs/openapi.yaml', $missing->failures[0]->message);
+        $this->assertStringContainsString('docs/openapi.{yaml,yml,json}', $missing->failures[0]->message);
+        $this->assertStringContainsString('storage/api-docs/api-docs.json', $missing->failures[0]->message);
+        $this->assertLessThanOrEqual(200, strlen($missing->failures[0]->message), 'fits the compact message cap');
+    }
+
+    public function test_a_post_behind_the_csrf_middleware_passes_because_the_request_runs_as_testing(): void
+    {
+        // A worker boots as the app's own environment (local, say); Laravel's CSRF
+        // middleware only steps aside for the testing one, as under its HTTP tests.
+        $this->app->instance('env', 'local');
+        config(['app.key' => 'base64:'.base64_encode(random_bytes(32))]);
+        $this->spec(['POST /api/forms' => self::formOperation()]);
+
+        $result = $this->check()->run([]);
+
+        $this->assertSame('passed', $result->status, $result->toJson());
+        $this->assertSame(1, $result->value['checked']);
     }
 
     public function test_a_write_inside_the_handler_rolls_back_and_the_body_file_is_removed(): void
@@ -200,6 +219,18 @@ final class ContractCheckTest extends TestCase
             'responses' => ['200' => ['content' => ['application/json' => ['schema' => [
                 'type' => 'object',
                 'properties' => ['data' => ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/User']]],
+            ]]]]],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private static function formOperation(): array
+    {
+        return [
+            'responses' => ['200' => ['content' => ['application/json' => ['schema' => [
+                'type' => 'object',
+                'required' => ['data'],
+                'properties' => ['data' => ['type' => 'object', 'required' => ['ok'], 'properties' => ['ok' => ['type' => 'boolean']]]],
             ]]]]],
         ];
     }

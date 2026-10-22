@@ -121,6 +121,39 @@ final class Process
         return null;
     }
 
+    /**
+     * A crash's output within the limit: the first line that names an error (a
+     * Node or PHP trace puts the cause on top and the frames below), then the tail.
+     */
+    public static function excerpt(string $text, int $limit = 300): string
+    {
+        $flat = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+        if (strlen($flat) <= $limit) {
+            return $flat;
+        }
+
+        $cause = null;
+        foreach (preg_split('/\R/', trim($text)) ?: [] as $line) {
+            if (preg_match('/\berror\b/i', $line) === 1) {
+                $cause = trim(preg_replace('/\s+/', ' ', $line) ?? $line);
+                break;
+            }
+        }
+
+        if ($cause === null) {
+            return '...'.substr($flat, -($limit - 3));
+        }
+
+        $half = intdiv($limit, 2);
+        if (strlen($cause) > $half) {
+            $cause = substr($cause, 0, $half - 3).'...';
+        }
+
+        $tail = substr($flat, -($limit - strlen($cause) - 5));
+
+        return str_contains($tail, $cause) ? '...'.substr($flat, -($limit - 3)) : $cause.' ... '.$tail;
+    }
+
     /** @return list<string> */
     public static function phpCommand(string $binary): array
     {

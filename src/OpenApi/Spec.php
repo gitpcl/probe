@@ -42,7 +42,12 @@ final class Spec
             }
         }
 
-        return 'no OpenAPI spec found; looked for '.implode(', ', $candidates).' (contract.spec or PROBE_OPENAPI)';
+        if ($candidates !== self::CANDIDATES) {
+            return 'no OpenAPI spec at '.$candidates[0].' (contract.spec or PROBE_OPENAPI)';
+        }
+
+        // Kept under the compact message cap of 200 characters; CANDIDATES is the list it summarises.
+        return 'no OpenAPI spec found in openapi.{yaml,yml,json}, docs/openapi.{yaml,yml,json}, public/openapi.json or storage/api-docs/api-docs.json; set contract.spec or PROBE_OPENAPI';
     }
 
     private static function parse(string $path, string $root): self|string

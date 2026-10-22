@@ -67,6 +67,19 @@ final class ArgvTest extends TestCase
         $this->assertSame('addition_commutative', $invocation->property);
     }
 
+    public function test_an_unknown_option_is_a_usage_error_instead_of_snippet_code(): void
+    {
+        $typo = Argv::parse(['probe', '--tool=probe', '--code=$x = 1; return $x + 1;']);
+
+        $this->assertSame('unknown option --code; snippet code goes last or after --, see --help', $typo->error);
+        $this->assertNull($typo->code);
+
+        $decrement = Argv::parse(['probe', '--', '--$x;']);
+
+        $this->assertNull($decrement->error);
+        $this->assertSame('--$x;', $decrement->code);
+    }
+
     public function test_code_after_double_dash_is_preserved(): void
     {
         $invocation = Argv::parse(['probe', '--', '--tool is not a flag']);

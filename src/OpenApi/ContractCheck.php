@@ -155,10 +155,13 @@ auth()->login(\$__user);
 
 PHP;
 
+        // The request runs as the testing environment, as under Laravel's own HTTP
+        // tests, so the CSRF middleware steps aside; the fork discards the change.
         return <<<PHP
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\Request;
 
+app()->instance('env', 'testing');
 {$login}\$__kernel = app(Kernel::class);
 \$__request = Request::create({$this->export($operation['uri'])}, {$this->export($operation['method'])}, {$this->export($operation['query'])}, [], [], {$this->export($server)}, {$content});
 \$__response = \$__kernel->handle(\$__request);
