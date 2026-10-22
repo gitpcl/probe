@@ -39,4 +39,29 @@ final class GitChanges
 
         return array_values(array_unique($names));
     }
+
+    /**
+     * The paths a request names (array or comma list), or the git diff when it names none.
+     *
+     * @return list<string>
+     */
+    public static function requested(string $root, mixed $paths): array
+    {
+        if (is_string($paths) && $paths !== '') {
+            $paths = array_map('trim', explode(',', $paths));
+        }
+
+        if (! is_array($paths) || $paths === []) {
+            return self::names($root);
+        }
+
+        $clean = [];
+        foreach ($paths as $path) {
+            if (is_string($path) && trim($path) !== '') {
+                $clean[] = trim($path);
+            }
+        }
+
+        return $clean;
+    }
 }

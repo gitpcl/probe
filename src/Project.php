@@ -102,6 +102,9 @@ final class Project
             'probe_browser' => ['PROBE_BROWSER_TIMEOUT_MS', 'probe.browser.timeout_ms', 8000],
             'run_affected', 'rerun_failed', 'mutate_check', 'architecture_check', 'auto_probe' => ['PROBE_SELECTIVE_TIMEOUT_MS', 'probe.selective.timeout_ms', 120000],
             'formal_check' => ['PROBE_FORMAL_TIMEOUT_MS', 'probe.formal.timeout_ms', 20000],
+            'static_check' => ['PROBE_STATIC_TIMEOUT_MS', 'probe.static.timeout_ms', 120000],
+            'type_check' => ['PROBE_TYPES_TIMEOUT_MS', 'probe.types.timeout_ms', 120000],
+            'contract_check' => ['PROBE_CONTRACT_TIMEOUT_MS', 'probe.contract.timeout_ms', 60000],
             default => [null, null, 0],
         };
 

@@ -40,6 +40,9 @@ final class McpServer
         'architecture_check' => ['description' => 'Run the architecture tests and configured forbid_use rules.', 'keys' => [], 'required' => []],
         'formal_check' => ['description' => 'Run an Alloy, TLA+, Dafny or Lean spec through the installed prover.', 'keys' => ['file', 'bridge', 'code'], 'required' => []],
         'auto_probe' => ['description' => 'Pick and run the most relevant tests for the given paths.', 'keys' => ['paths', 'limit'], 'required' => []],
+        'static_check' => ['description' => 'Run PHPStan (Larastan) over the files a change touches and the files that reference them; scope changed or all; no paths means the git diff.', 'keys' => ['paths', 'scope', 'level'], 'required' => []],
+        'type_check' => ['description' => 'Run vue-tsc (else tsc) --noEmit over the project tsconfig; paths filter the report, value.total keeps the whole count.', 'keys' => ['paths', 'project'], 'required' => []],
+        'contract_check' => ['description' => 'Send the OpenAPI operations (all, the given routes, or those the changed paths reach) through the booted app and validate each JSON response against its schema.', 'keys' => ['paths', 'routes', 'spec', 'auth'], 'required' => []],
         'status' => ['description' => 'Worker pool status.', 'keys' => [], 'required' => []],
         'cold' => ['description' => 'Replace the warm worker with a fresh one.', 'keys' => [], 'required' => []],
         'stop' => ['description' => 'Stop the warm worker.', 'keys' => [], 'required' => []],
@@ -134,6 +137,9 @@ final class McpServer
             'engine' => ['type' => 'string', 'enum' => ['auto', 'lightpanda', 'playwright']],
             'file' => ['type' => 'string'], 'limit' => ['type' => 'integer'], 'property' => ['type' => 'string'],
             'cases' => ['type' => 'integer'], 'seed' => ['type' => 'integer'], 'bridge' => ['type' => 'string'],
+            'scope' => ['type' => 'string', 'enum' => ['affected', 'changed', 'all']], 'level' => ['type' => 'integer'],
+            'project' => ['type' => 'string'], 'spec' => ['type' => 'string'], 'auth' => ['type' => 'string'],
+            'routes' => ['type' => ['array', 'string'], 'items' => ['type' => 'string']],
         ];
 
         $tools = [];

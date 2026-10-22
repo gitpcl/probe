@@ -178,12 +178,48 @@ final class DependencyGraph
     }
 
     /**
-     * Class to the classes whose files reference it, from a scan that re-reads only
-     * files whose mtime moved since the last call.
+     * The changed PHP files plus the files declaring every class that reaches one of
+     * their classes through static references, up to the configured hops: the set a
+     * signature change can break, which is what a static analyser should re-read.
      *
-     * @return array<string, list<string>>
+     * @param  list<string>  $paths
+     * @return list<string> absolute paths, changed files first
      */
-    private function referrers(): array
+    public function affectedSources(array $paths): array
+    {
+        $changed = array_values(array_filter(
+            $this->normalize($paths),
+            static fn (string $path): bool => is_file($path) && str_ends_with($path, '.php'),
+        ));
+        if ($changed === []) {
+            return [];
+        }
+
+        $classes = [];
+        foreach ($changed as $path) {
+            foreach ($this->classesIn($path) as $class) {
+                $classes[] = $class;
+            }
+        }
+
+        $files = array_fill_keys($changed, true);
+        $defines = $this->definitions();
+        foreach ($this->expand($classes) as $class) {
+            if (isset($defines[$class])) {
+                $files[$defines[$class]] = true;
+            }
+        }
+
+        return array_keys($files);
+    }
+
+    /**
+     * Class to the file declaring it, from a scan that re-reads only files whose
+     * mtime moved since the last call.
+     *
+     * @return array<string, string>
+     */
+    private function definitions(): array
     {
         $files = $this->sourceFiles();
         clearstatcache();
@@ -206,6 +242,18 @@ final class DependencyGraph
                 $defines[$class] = $file;
             }
         }
+
+        return $defines;
+    }
+
+    /**
+     * Class to the classes whose files reference it, from the same scan.
+     *
+     * @return array<string, list<string>>
+     */
+    private function referrers(): array
+    {
+        $defines = $this->definitions();
 
         $referrers = [];
         foreach ($this->scanned as $file => $info) {

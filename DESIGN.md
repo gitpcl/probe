@@ -13,6 +13,7 @@
 | 3 | `mutate_check`, `property_check`, `architecture_check` |
 | 4 | `formal_check` for Alloy, TLA+, Dafny, and Lean 4. Counterexamples are normal failures |
 | 5 | `auto_probe` via `HeuristicSelector`. `LlmSelector` is off unless `PROBE_LLM` and an endpoint are set |
+| 6 | `static_check` (PHPStan over affected files), `type_check` (vue-tsc, else tsc), `contract_check` (OpenAPI responses against the booted app) |
 
 ---
 
@@ -59,6 +60,9 @@ Agent (Claude Code, Cursor, etc.) → MCP/RPC → Probe Agent Interface → Warm
 - `rerun_failed` — Re-execute last failures
 - `get_failures` — Progressive detail
 - `formal_check` — Alloy / TLA+ / Dafny / Lean
+- `static_check` — PHPStan / Larastan over the files a change touches
+- `type_check` — vue-tsc / tsc
+- `contract_check` — OpenAPI operations through the booted app
 - `mutate_check` / `property_check` — Quality signals
 
 Target latencies: 30–150 ms for PHP probes, sub-second for light browser probes.

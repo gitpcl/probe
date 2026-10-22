@@ -34,6 +34,12 @@ final class Argv
         $property = null;
         $steps = null;
         $httpStatus = null;
+        $scope = null;
+        $level = null;
+        $project = null;
+        $spec = null;
+        $routes = null;
+        $auth = null;
         $positionals = [];
 
         $args = array_slice($argv, 1);
@@ -155,6 +161,24 @@ final class Argv
                 case '--http-status':
                     $httpStatus = $value !== null ? (int) $value : null;
                     break;
+                case '--scope':
+                    $scope = $value;
+                    break;
+                case '--level':
+                    $level = $value !== null ? (int) $value : null;
+                    break;
+                case '--project':
+                    $project = $value;
+                    break;
+                case '--spec':
+                    $spec = $value;
+                    break;
+                case '--routes':
+                    $routes = $value;
+                    break;
+                case '--auth':
+                    $auth = $value;
+                    break;
                 default:
                     $positionals[] = $arg;
             }
@@ -185,6 +209,12 @@ final class Argv
             property: $property,
             steps: $steps,
             httpStatus: $httpStatus,
+            scope: $scope,
+            level: $level,
+            project: $project,
+            spec: $spec,
+            routes: $routes,
+            auth: $auth,
         );
     }
 }

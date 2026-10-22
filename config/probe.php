@@ -138,6 +138,44 @@ return [
     ],
 
     /*
+    | static_check runs PHPStan (Larastan is a PHPStan extension) over the files a
+    | change touches and the files that reference them. level applies only when the
+    | project has no phpstan.neon to say so itself. PHPStan's own result cache does
+    | the caching; a missing binary returns missing_tool.
+    */
+    'static' => [
+        'binary' => env('PROBE_PHPSTAN', 'vendor/bin/phpstan'),
+        'level' => (int) env('PROBE_PHPSTAN_LEVEL', 5),
+        'memory_limit' => env('PROBE_PHPSTAN_MEMORY', '2G'),
+        'timeout_ms' => (int) env('PROBE_STATIC_TIMEOUT_MS', 120000),
+    ],
+
+    /*
+    | type_check runs vue-tsc, else tsc, with --noEmit over the project's tsconfig.
+    | The compiler's incremental mode does the caching; a missing binary returns missing_tool.
+    */
+    'types' => [
+        'binary' => env('PROBE_TSC'),
+        'project' => env('PROBE_TSCONFIG', 'tsconfig.json'),
+        'timeout_ms' => (int) env('PROBE_TYPES_TIMEOUT_MS', 120000),
+    ],
+
+    /*
+    | contract_check sends each documented OpenAPI operation through the booted app
+    | (Accept application/json, inside the probe's transaction) and validates the
+    | JSON response against the spec's schema. spec null searches openapi.{yaml,json}
+    | in the root, docs/, public/ and storage/api-docs; auth is a user id or email
+    | to log in first; headers go on every request; limit caps messages per operation.
+    */
+    'contract' => [
+        'spec' => env('PROBE_OPENAPI'),
+        'auth' => env('PROBE_CONTRACT_AUTH'),
+        'headers' => [],
+        'limit' => (int) env('PROBE_CONTRACT_LIMIT', 10),
+        'timeout_ms' => (int) env('PROBE_CONTRACT_TIMEOUT_MS', 60000),
+    ],
+
+    /*
     | auto_probe uses the heuristic selector unless llm is true and an endpoint is set.
     | CI should leave llm false so no network key is required.
     */

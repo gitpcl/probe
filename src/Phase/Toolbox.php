@@ -11,9 +11,12 @@ use Probe\Intelligence\AutoProbe;
 use Probe\Intelligence\FailureHistory;
 use Probe\Intelligence\HeuristicSelector;
 use Probe\Intelligence\LlmSelector;
+use Probe\OpenApi\ContractCheck;
 use Probe\Quality\ArchitectureCheck;
 use Probe\Quality\MutationCheck;
 use Probe\Quality\PropertyCheck;
+use Probe\Quality\StaticCheck;
+use Probe\Quality\TypeCheck;
 use Probe\Result\ProbeResult;
 use Probe\Runner\DatabaseGuard;
 use Probe\Runner\SnippetRunner;
@@ -38,6 +41,12 @@ final class Toolbox
     private readonly SpecRunner $formal;
 
     private readonly AutoProbe $auto;
+
+    private readonly StaticCheck $static;
+
+    private readonly TypeCheck $types;
+
+    private readonly ContractCheck $contract;
 
     /** @param  array<string, mixed>  $config */
     public function __construct(
@@ -83,6 +92,9 @@ final class Toolbox
             is_array($architecture['rules'] ?? null) ? $architecture['rules'] : [],
         );
         $this->formal = new SpecRunner($root, is_array($config['formal'] ?? null) ? $config['formal'] : []);
+        $this->static = new StaticCheck($root, $graph, is_array($config['static'] ?? null) ? $config['static'] : []);
+        $this->types = new TypeCheck($root, is_array($config['types'] ?? null) ? $config['types'] : []);
+        $this->contract = new ContractCheck($root, $snippets, $graph, $routes, $home, is_array($config['contract'] ?? null) ? $config['contract'] : []);
         $intelligence = is_array($config['intelligence'] ?? null) ? $config['intelligence'] : [];
         $this->auto = new AutoProbe(
             $root,
@@ -113,6 +125,9 @@ final class Toolbox
             'architecture_check' => $this->architecture->run($request),
             'formal_check' => $this->formal->run($request),
             'auto_probe' => $this->auto->run($request),
+            'static_check' => $this->static->run($request),
+            'type_check' => $this->types->run($request),
+            'contract_check' => $this->contract->run($request),
             default => null,
         };
     }

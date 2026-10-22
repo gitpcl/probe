@@ -162,23 +162,7 @@ final class AffectedRunner implements SelectiveRunner
      */
     private function paths(array $request): array
     {
-        $paths = $request['paths'] ?? null;
-        if (is_string($paths) && $paths !== '') {
-            $paths = array_map('trim', explode(',', $paths));
-        }
-
-        if (! is_array($paths) || $paths === []) {
-            return GitChanges::names($this->root);
-        }
-
-        $clean = [];
-        foreach ($paths as $path) {
-            if (is_string($path) && trim($path) !== '') {
-                $clean[] = trim($path);
-            }
-        }
-
-        return $clean;
+        return GitChanges::requested($this->root, $request['paths'] ?? null);
     }
 
     /**

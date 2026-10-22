@@ -141,6 +141,10 @@ final class Dispatcher
                 'contains' => $invocation->contains,
                 'absent' => $invocation->absent,
                 'property' => $invocation->property,
+                'scope' => $invocation->scope,
+                'project' => $invocation->project,
+                'spec' => $invocation->spec,
+                'auth' => $invocation->auth,
             ] as $key => $value) {
                 if (is_string($value) && $value !== '') {
                     $request[$key] = $value;
@@ -161,6 +165,17 @@ final class Dispatcher
 
             if ($invocation->httpStatus !== null) {
                 $request['http_status'] = $invocation->httpStatus;
+            }
+
+            if ($invocation->level !== null) {
+                $request['level'] = $invocation->level;
+            }
+
+            if ($invocation->routes !== null && $invocation->routes !== '') {
+                $request['routes'] = array_values(array_filter(
+                    array_map('trim', explode(',', $invocation->routes)),
+                    static fn (string $route): bool => $route !== '',
+                ));
             }
 
             if ($invocation->steps !== null && $invocation->steps !== '') {
@@ -318,6 +333,9 @@ Usage:
   vendor/bin/probe --tool=architecture_check
   vendor/bin/probe --tool=formal_check --file=specs/auth.als
   vendor/bin/probe --tool=auto_probe --paths=app/Models/User.php
+  vendor/bin/probe --tool=static_check --paths=app/Models/User.php
+  vendor/bin/probe --tool=type_check
+  vendor/bin/probe --tool=contract_check --routes='GET /api/users/{id}'
   vendor/bin/probe --status
   vendor/bin/probe --stop
   vendor/bin/probe --cold 'return 1;'

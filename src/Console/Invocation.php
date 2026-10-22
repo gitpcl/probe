@@ -31,5 +31,11 @@ final class Invocation
         public readonly ?string $property = null,
         public readonly ?string $steps = null,
         public readonly ?int $httpStatus = null,
+        public readonly ?string $scope = null,
+        public readonly ?int $level = null,
+        public readonly ?string $project = null,
+        public readonly ?string $spec = null,
+        public readonly ?string $routes = null,
+        public readonly ?string $auth = null,
     ) {}
 }

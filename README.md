@@ -65,7 +65,7 @@ Exit codes: `0` passed, `1` failed, `2` error or unsupported.
 claude mcp add probe -- "$PWD/vendor/bin/probe-mcp"
 ```
 
-The server keeps the project it was started in. Tools: `probe`, `get_failures`, `rerun_failed`, `run_affected`, `probe_browser`, `mutate_check`, `property_check`, `architecture_check`, `formal_check`, `auto_probe`, `status`, `cold`, `stop`. Each returns one text item holding the same compact JSON the CLI prints, with `isError` set whenever the status is not `passed`.
+The server keeps the project it was started in. Tools: `probe`, `get_failures`, `rerun_failed`, `run_affected`, `probe_browser`, `mutate_check`, `property_check`, `architecture_check`, `formal_check`, `auto_probe`, `static_check`, `type_check`, `contract_check`, `status`, `cold`, `stop`. Each returns one text item holding the same compact JSON the CLI prints, with `isError` set whenever the status is not `passed`.
 
 ## Snippets
 
@@ -103,6 +103,9 @@ Passing output is a single JSON object. The green form is about a dozen tokens, 
 | `architecture_check` | 3 | Enforce `forbid_use` rules and run `tests/Architecture` |
 | `formal_check` | 4 | Run Alloy, TLC, Dafny, or Lean when that binary exists |
 | `auto_probe` | 5 | Pick a few impacted tests, or a class smoke probe |
+| `static_check` | 6 | Run PHPStan (Larastan) over the files a change touches and the files that reference them |
+| `type_check` | 6 | Run `vue-tsc`, else `tsc`, with `--noEmit` over the project tsconfig |
+| `contract_check` | 6 | Send the OpenAPI operations through the booted app and validate the JSON responses |
 
 An MCP server can still be a thin wrapper over the same JSON messages. The agent entry is the CLI and the Unix socket.
 
@@ -201,6 +204,36 @@ It also runs `*Test.php` files under `tests/Architecture` and `tests/Arch` throu
 
 A missing binary is `missing_tool`. A counterexample is `status: failed` with a short message. `get_failures` adds the prover trace. Inline specs can be passed as `code` with a `bridge`.
 
+## Static analysis
+
+`static_check --paths=app/Services/Pricing.php` runs PHPStan (Larastan is a PHPStan extension and needs nothing extra here) over the changed files and every file that references them through `use`, `new`, static calls and type hints, up to `selective.depth` hops: the set a signature change can break. `--scope=changed` analyses only the given files, `--scope=all` leaves the paths to `phpstan.neon`. No paths means the git diff.
+
+```json
+{"status":"failed","duration_ms":2140,"failures":[{"id":"1","message":"Parameter #1 $cents of method total() expects int, string given. at app/Http/Controllers/CartController.php:31"}],"value":{"scope":"affected","errors":1,"files":3}}
+```
+
+`get_failures` adds `file` and `line`. The project's `phpstan.neon` owns the level, baseline and extensions; `--level` overrides it for one run, and `static.level` (default 5) applies only when there is no neon. The binary is `vendor/bin/phpstan` or `PROBE_PHPSTAN`; missing is `missing_tool` with the install line (`composer require --dev larastan/larastan`). PHPStan's own result cache makes repeat runs fast; Probe keeps no daemon for it, since none exists outside PHPStan Pro.
+
+## TypeScript
+
+`type_check` runs `node_modules/.bin/vue-tsc`, else `tsc`, with `--noEmit -p tsconfig.json` (`--project` or `PROBE_TSCONFIG` for another file). The compiler decides what it checks from that file, so `--paths` only filters the report: `value.errors` is what is shown and `value.total` the whole count, so a filter never hides a broken caller.
+
+```json
+{"status":"failed","duration_ms":6800,"failures":[{"id":"1","message":"TS2322: Type 'string' is not assignable to type 'number'. at resources/js/Pages/Cart.vue:14"}],"value":{"errors":1,"total":1,"binary":"vue-tsc","project":"tsconfig.json"}}
+```
+
+A missing binary is `missing_tool` (`npm install --save-dev typescript vue-tsc`); a missing tsconfig is `error` `tsconfig`. tsc's incremental mode does the caching.
+
+## Contracts
+
+`contract_check` reads the OpenAPI 3 document (`openapi.yaml` or `.json` in the root, `docs/`, `public/`, or `storage/api-docs/api-docs.json`; `contract.spec` or `PROBE_OPENAPI` names another; YAML needs `symfony/yaml`, which Laravel ships) and sends each documented operation through the booted application as a probe: `Accept: application/json`, path and query parameters from their `example`s, the request body from the `requestBody` example, inside the probe's transaction so writes roll back. The lowest `2xx` `application/json` schema is the contract; the response is decoded and checked against it (`$ref` into `components`, `type`, `nullable`, `required`, `properties`, `additionalProperties: false`, `items`, `enum`, `allOf`/`oneOf`/`anyOf`, lengths, bounds, `pattern`; `format` is not checked).
+
+```json
+{"status":"failed","duration_ms":210,"failures":[{"id":"1","message":"GET /api/users/{id} 200: $.data.email: expected string, got null"},{"id":"2","message":"POST /api/orders: expected 201, got 500 Server Error"}],"value":{"operations":12,"checked":10,"failed":2,"selection":"all","spec":"openapi.yaml","skipped":[{"operation":"DELETE /api/orders/{id}","reason":"no example for path parameter id"}]}}
+```
+
+`--routes='GET /api/users/{id},/api/orders'` checks those operations; `--paths=app/Http/Controllers/UserController.php` checks the operations whose routes that controller, and whatever reaches it through the reference graph, serves, read from the booted router. An operation without a path example, a required-body example or a JSON `2xx` schema is listed under `skipped` rather than counted green, and a run where nothing could be sent is an error. `--auth=<user id or email>` (or `contract.auth`) logs that user in on the default guard first; `contract.headers` go on every request; `contract.limit` (default 10) caps messages per operation.
+
 ## Auto probes
 
 `auto_probe` ranks impacted tests with `Probe\Intelligence\HeuristicSelector` (direct matches, then recent failures in `failure-history.json`) and runs at most `PROBE_AUTO_LIMIT` of them (default 8). If nothing matches, it probes `class_exists` for classes in the changed files.
@@ -271,7 +304,7 @@ Selection and browser:
 | Browser check, first call | 619 ms, 291 ms in an earlier run; the launch dominates and varies | 1 each |
 | Browser check, kept browser | 101 to 104 ms wall, 55 to 57 ms inside the worker, same pid | 4 |
 
-A probe is a throwaway check, not a test file that stays in the repo: the speed is for the agent's inner loop, and the suite still runs before a change is called safe. Agent loops take the MCP server or the shell entry. `run_affected` shows what it selected and, when the guard says the whole suite is cheap, runs it in about the time of the slowest file.
+A probe is a throwaway check, not a test file that stays in the repo: the speed is for the agent's inner loop, and the suite still runs before a change is called safe. Agent loops take the MCP server or the shell entry. `run_affected` shows what it selected and, when the guard says the whole suite is cheap, runs it in about the time of the slowest file. `static_check`, `type_check` and `contract_check` are bound by the tool they wrap: PHPStan's result cache and tsc's incremental mode do the caching, and what Probe adds is the selection (the files a change touches, the routes a controller change reaches) and the result shape.
 
 ## Configuration
 
@@ -300,17 +333,23 @@ Published to `config/probe.php`.
 | `property.cases` | `20` | Generated cases per property |
 | `architecture.rules` | `[]` | `path` plus `forbid_use` list |
 | `formal.*` | `alloy`, `tlc`, `dafny`, `lean` | Optional prover binaries |
+| `static.binary` | `vendor/bin/phpstan` | `PROBE_PHPSTAN`; missing is `missing_tool` |
+| `static.level` | `5` | Only when the project has no `phpstan.neon`; `PROBE_PHPSTAN_LEVEL` |
+| `types.binary` | `vue-tsc`, else `tsc`, under `node_modules/.bin` | `PROBE_TSC` |
+| `types.project` | `tsconfig.json` | `PROBE_TSCONFIG` |
+| `contract.spec` | searched | `PROBE_OPENAPI`; else `openapi.{yaml,json}` in the root, `docs/`, `public/`, `storage/api-docs` |
+| `contract.auth` | `null` | User id or email logged in before each request; `PROBE_CONTRACT_AUTH` |
 | `intelligence.llm` | `false` | Heuristic selector unless an endpoint is set |
 
-Timeouts need `ext-pcntl`. With `fork` on, a tight CPU loop is killed with its child half a second after the timeout and the worker stays up. Without it the loop may run until the client gives up and the supervisor kills the worker; the next call boots a fresh one. The client waits at least the tool's own timeout (browser, selective, formal) before reporting `client timed out`.
+Timeouts need `ext-pcntl`. With `fork` on, a tight CPU loop is killed with its child half a second after the timeout and the worker stays up. Without it the loop may run until the client gives up and the supervisor kills the worker; the next call boots a fresh one. The client waits at least the tool's own timeout (browser, selective, formal, static, types, contract) before reporting `client timed out`.
 
 ## Security
 
-Probe executes arbitrary PHP inside the application. It is a local dev dependency. Do not expose the socket, do not install it with Composer in production (`--dev` keeps it out of `--no-dev` installs), and do not point it at untrusted snippets. `mutate_check` rewrites the target file until the run finishes. Browser and formal tools shell out to local binaries.
+Probe executes arbitrary PHP inside the application. It is a local dev dependency. Do not expose the socket, do not install it with Composer in production (`--dev` keeps it out of `--no-dev` installs), and do not point it at untrusted snippets. `mutate_check` rewrites the target file until the run finishes. Browser, formal, static and type tools shell out to local binaries; `contract_check` sends requests through the booted app inside the probe's transaction.
 
 ## Scope
 
-Shipped: warm workers, compact JSON, Lightpanda/Playwright browser probes, affected-test selection with duration sharding, scoped mutation, property checks, architecture rules, Alloy/TLA+/Dafny/Lean bridges, and heuristic auto-probes.
+Shipped: warm workers, compact JSON, Lightpanda/Playwright browser probes, affected-test selection with duration sharding, scoped mutation, property checks, architecture rules, Alloy/TLA+/Dafny/Lean bridges, heuristic auto-probes, PHPStan over affected files, vue-tsc/tsc, and OpenAPI contract checks against the booted app.
 
 Still local-only: Unix sockets (no Windows), MCP as a separate wrapper, and a live model call only when `PROBE_LLM` is set. External binaries are detected at runtime and degrade to `missing_tool`.
 
