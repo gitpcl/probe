@@ -118,6 +118,55 @@ XML);
         $this->assertSame(20, $parsed['times']['/tmp/UserTest.php']);
     }
 
+    public function test_junit_failure_keeps_the_assertion_and_the_tests_own_frames_only(): void
+    {
+        $root = $this->tree(['tests/UserTest.php' => "<?php\n"]);
+        $real = realpath($root) ?: $root;
+        $xml = <<<XML
+<?xml version="1.0"?>
+<testsuites>
+  <testsuite tests="1" failures="1">
+    <testcase name="test_it" classname="UserTest" file="$real/tests/UserTest.php" time="0.02">
+      <failure type="PHPUnit\Framework\ExpectationFailedException">UserTest::test_it
+Failed asserting that 0 is identical to 2.
+
+$real/tests/UserTest.php:4
+$real/vendor/bin/pest:119
+/Users/someone/code/probe/src/Selective/ForkedShards.php:115
+$real/vendor/laravel/framework/src/Illuminate/Foundation/Application.php:1235</failure>
+    </testcase>
+  </testsuite>
+</testsuites>
+XML;
+
+        $parsed = JunitReport::parse($xml, $root);
+
+        $this->assertSame(
+            'UserTest::test_it: Failed asserting that 0 is identical to 2. at tests/UserTest.php:4',
+            $parsed['failures'][0]['message'],
+        );
+    }
+
+    public function test_junit_failure_drops_the_name_pest_glues_to_the_message(): void
+    {
+        $parsed = JunitReport::parse(<<<'XML'
+<?xml version="1.0"?>
+<testsuites>
+  <testsuite tests="1" failures="1">
+    <testcase name="probe scratch: deliberate failure" classname="Tests.Feature.ScratchTest" file="/tmp/ScratchTest.php::probe scratch: deliberate failure" time="0.02">
+      <failure type="PHPUnit\Framework\ExpectationFailedException">probe scratch: deliberate failureFailed asserting that 0 is identical to 2.
+/tmp/vendor/bin/pest:119</failure>
+    </testcase>
+  </testsuite>
+</testsuites>
+XML);
+
+        $this->assertSame(
+            'Tests.Feature.ScratchTest::probe scratch: deliberate failure: Failed asserting that 0 is identical to 2.',
+            $parsed['failures'][0]['message'],
+        );
+    }
+
     public function test_junit_times_are_per_file_even_when_pest_appends_the_test_name(): void
     {
         $parsed = JunitReport::parse(<<<'XML'
@@ -303,7 +352,8 @@ XML);
 
         $this->assertSame('passed', $result->status, $result->toJson());
         $this->assertSame('all', $result->value['selection']);
-        $this->assertSame(['tests/Feature/OrderTest.php', 'tests/Feature/UserTest.php'], $result->value['selected']);
+        $this->assertSame(2, $result->value['files']);
+        $this->assertArrayNotHasKey('selected', $result->value, 'a full run repeats the suite listing for nothing');
         $this->assertStringContainsString('OrderTest.php', (string) file_get_contents($log));
     }
 

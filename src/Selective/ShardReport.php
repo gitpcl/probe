@@ -18,7 +18,7 @@ final class ShardReport
      */
     public static function build(string $root, array $files, string $junit, string $errorFile, int $durationMs, bool $timedOut, int $exitCode): array
     {
-        $parsed = JunitReport::parse((string) @file_get_contents($junit));
+        $parsed = JunitReport::parse((string) @file_get_contents($junit), $root);
         $errorText = trim((string) @file_get_contents($errorFile));
         @unlink($junit);
         @unlink($junit.'.out');

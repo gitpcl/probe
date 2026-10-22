@@ -58,7 +58,7 @@ final class AffectedRunner implements SelectiveRunner
         }
 
         if ($tests === []) {
-            return ProbeResult::passed(Stats::elapsedMs($started), ['ran' => 0, 'selection' => $selection, 'selected' => []], true);
+            return ProbeResult::passed(Stats::elapsedMs($started), ['ran' => 0] + $this->selected([], $selection), true);
         }
 
         return $this->runFiles($tests, $started, $selection);
@@ -114,7 +114,7 @@ final class AffectedRunner implements SelectiveRunner
         $started ??= hrtime(true);
         $files = array_values(array_filter($files, 'is_file'));
         if ($files === []) {
-            return ProbeResult::passed(Stats::elapsedMs($started), ['ran' => 0, 'selection' => $selection, 'selected' => []], true);
+            return ProbeResult::passed(Stats::elapsedMs($started), ['ran' => 0] + $this->selected([], $selection), true);
         }
 
         $binary = $this->resolveRunner();
@@ -126,7 +126,7 @@ final class AffectedRunner implements SelectiveRunner
                     id: 'missing_tool',
                     message: 'pest or phpunit was not found',
                 )],
-                value: ['selection' => $selection, 'selected' => $this->relative($files)],
+                value: $this->selected($files, $selection),
                 hasValue: true,
             );
         }
@@ -188,6 +188,23 @@ final class AffectedRunner implements SelectiveRunner
     private function relative(array $files): array
     {
         return array_map(fn (string $file): string => Paths::relative($this->root, $file), $files);
+    }
+
+    /**
+     * What ran, as the agent needs it: the file count always, the list only
+     * when something chose those files (a full run would repeat the suite).
+     *
+     * @param  list<string>  $files
+     * @return array{selection: string, files: int, selected?: list<string>}
+     */
+    private function selected(array $files, string $selection): array
+    {
+        $value = ['selection' => $selection, 'files' => count($files)];
+        if ($selection !== 'all') {
+            $value['selected'] = $this->relative($files);
+        }
+
+        return $value;
     }
 
     /**
@@ -332,7 +349,7 @@ final class AffectedRunner implements SelectiveRunner
             status: $status,
             durationMs: Stats::elapsedMs($started),
             failures: $failures,
-            value: ['ran' => $ran, 'shards' => count($reports), 'shard_ms' => $duration, 'mode' => $mode, 'selection' => $selection, 'selected' => $this->relative($files)],
+            value: ['ran' => $ran, 'shards' => count($reports), 'shard_ms' => $duration, 'mode' => $mode] + $this->selected($files, $selection),
             hasValue: true,
         );
     }
