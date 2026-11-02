@@ -209,7 +209,7 @@ final class WorkerPoolTest extends TestCase
     {
         $failed = json_decode($this->pool->dispatch($this->root, [
             'tool' => 'probe',
-            'code' => 'throw new RuntimeException("boom");',
+            'code' => 'return collect([1])->map(fn (int $x): int => throw new RuntimeException("boom"))->all();',
         ], 10000), true, 512, JSON_THROW_ON_ERROR);
 
         $this->assertSame('failed', $failed['status']);
@@ -221,6 +221,8 @@ final class WorkerPoolTest extends TestCase
 
         $this->assertSame('RuntimeException', $detail['failures'][0]['type']);
         $this->assertArrayHasKey('trace', $detail['failures'][0]);
+        $this->assertStringContainsString('Illuminate/Collections', $detail['failures'][0]['trace']);
+        $this->assertStringNotContainsString('WorkCommand', $detail['failures'][0]['trace'], 'the worker stack below the snippet is not the application');
 
         $rerun = json_decode($this->pool->dispatch($this->root, [
             'tool' => 'rerun_failed',

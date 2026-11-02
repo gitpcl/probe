@@ -20,7 +20,7 @@ final class RequestHandlerTest extends TestCase
 
         $failed = $handler->handle([
             'tool' => 'probe',
-            'code' => 'throw new RuntimeException("boom");',
+            'code' => 'return collect([1])->map(fn (int $x): int => throw new RuntimeException("boom"))->all();',
         ]);
 
         $this->assertSame('failed', $failed['status']);
@@ -32,6 +32,7 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame('RuntimeException', $detail['failures'][0]['type']);
         $this->assertSame('probe.php', $detail['failures'][0]['file']);
         $this->assertArrayHasKey('trace', $detail['failures'][0]);
+        $this->assertStringContainsString('Illuminate/Collections', $detail['failures'][0]['trace']);
 
         $rerun = $handler->handle(['tool' => 'rerun_failed']);
         $this->assertSame('failed', $rerun['status']);

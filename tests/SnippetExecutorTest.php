@@ -15,14 +15,24 @@ final class SnippetExecutorTest extends TestCase
 {
     public function test_a_failure_trace_keeps_only_application_frames(): void
     {
-        $result = (new SnippetRunner(new DatabaseGuard))->run('throw new RuntimeException("boom");');
+        $result = (new SnippetRunner(new DatabaseGuard))->run('return collect([1])->map(fn (int $x): int => throw new RuntimeException("boom"))->all();');
 
         $trace = (string) $result->failures[0]->trace;
         $this->assertSame('failed', $result->status);
+        $this->assertStringContainsString('Illuminate/Collections', $trace);
         $this->assertStringNotContainsString('SnippetRunner.php', $trace);
         $this->assertStringNotContainsString('execute_snippet.php', $trace);
         $this->assertStringNotContainsString('probe-snippet-', $trace);
+        $this->assertStringNotContainsString('PHPUnit', $trace, 'frames below the snippet are the runner, not the application');
         $this->assertStringStartsWith('#0 ', $trace);
+    }
+
+    public function test_a_throw_at_the_top_of_the_snippet_has_no_trace(): void
+    {
+        $result = (new SnippetRunner(new DatabaseGuard))->run('throw new RuntimeException("boom");');
+
+        $this->assertSame('failed', $result->status);
+        $this->assertSame('', (string) $result->failures[0]->trace);
     }
 
     public function test_return_value_and_missing_return(): void

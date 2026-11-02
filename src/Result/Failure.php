@@ -125,16 +125,24 @@ final class Failure
     }
 
     /**
-     * The exception trace without Probe's own frames (runner, guard, generated
-     * snippet file): what is left is the application's part of the story.
+     * The exception trace from the application frames the snippet reached, cut at
+     * the first Probe frame: everything below it is the runner and the worker.
+     * The generated snippet file's own frames are left out too.
      */
     private static function trace(Throwable $exception): string
     {
-        $package = dirname(__DIR__, 2).'/';
+        // src/ rather than the package root: in this checkout the root also holds vendor/.
+        $source = dirname(__DIR__).'/';
         $lines = [];
         foreach (explode("\n", $exception->getTraceAsString()) as $line) {
-            if (str_contains($line, $package) || str_contains($line, 'probe-snippet-')) {
+            if (str_contains($line, 'probe-snippet-')) {
                 continue;
+            }
+
+            // Frames below the package boundary are the worker's own stack
+            // (command, container, console): the application's story ends here.
+            if (str_contains($line, $source)) {
+                break;
             }
 
             $space = strpos($line, ' ');
