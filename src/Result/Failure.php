@@ -73,12 +73,23 @@ final class Failure
         );
     }
 
-    /** @return array{id: string, message: string} */
+    /**
+     * The compact line keeps the error text and drops the connection-and-SQL
+     * tail Laravel appends to a query exception; the detailed form keeps it all.
+     *
+     * @return array{id: string, message: string}
+     */
     public function compact(): array
     {
+        $message = $this->message;
+        $tail = strpos($message, ' (Connection: ');
+        if ($tail !== false && str_ends_with(rtrim($message), ')')) {
+            $message = substr($message, 0, $tail);
+        }
+
         return [
             'id' => $this->id,
-            'message' => self::flatten($this->message, 180),
+            'message' => self::flatten($message, 180),
         ];
     }
 

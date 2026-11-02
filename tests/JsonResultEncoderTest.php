@@ -64,6 +64,21 @@ final class JsonResultEncoderTest extends TestCase
         $this->assertArrayHasKey('trace', $detailed['failures'][0]);
     }
 
+    public function test_compact_failure_drops_the_query_exception_tail_that_detail_keeps(): void
+    {
+        $message = 'SQLSTATE[53200]: Out of memory: 7 ERROR: out of shared memory HINT: You might need to increase "max_locks_per_transaction". (Connection: pgsql, Database: app_test, SQL: drop table "a", "b" cascade)';
+        $result = ProbeResult::failed(5, new Failure(id: '1', message: $message, type: 'Illuminate\\Database\\QueryException'));
+
+        $encoder = new JsonResultEncoder;
+
+        $this->assertSame(
+            'SQLSTATE[53200]: Out of memory: 7 ERROR: out of shared memory HINT: You might need to increase "max_locks_per_transaction".',
+            $encoder->compact($result)['failures'][0]['message'],
+            'the compact line keeps the error and the hint, not the connection and SQL blob',
+        );
+        $this->assertSame($message, $encoder->detailed($result)['failures'][0]['message']);
+    }
+
     public function test_unsupported_tool_names_its_phase(): void
     {
         $json = (new JsonResultEncoder)->encode(ProbeResult::unsupported('run_affected', 2));

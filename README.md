@@ -83,7 +83,7 @@ Passing output is a single JSON object. The green form is about a dozen tokens, 
 | --- | --- |
 | `status` | `passed`, `failed`, `error`, or `unsupported` |
 | `duration_ms` | Time inside the worker, rounded to milliseconds |
-| `failures` | Empty when green. Compact failures are `id` and `message` |
+| `failures` | Empty when green. Compact failures are `id` and `message`; a query exception's trailing connection-and-SQL blob is left to the detailed form |
 | `value` | Snippet return value, or a small payload such as `ran`, `engine`, `killed`, or `selector` |
 | `rerun` | `false` when `rerun_failed` had nothing to run |
 | `failures_total` | Present when the list was cut at `max_failures` (default 20); every row stays reachable through `get_failures --id=N` |

@@ -4,6 +4,10 @@ Notable changes to this package. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Fixed
+
+- The compact failure line no longer spends its 180 characters on the `(Connection: ..., SQL: ...)` tail Laravel appends to a query exception, so the database's own error and hint stay visible; `get_failures` keeps the full text.
+
 ### Changed
 
 - `probe-mcp` and the CLI client send PHP's own warnings and fatal errors to stderr, never to stdout, so a stray message cannot corrupt the JSON-RPC stream or the one-object CLI result. A warning raised while the MCP server handles a request is answered as a JSON-RPC internal error. The server writes one stderr line when it exits (`stdin closed after N messages`, or the fatal), so a client that reports a disconnect leaves a trace of why.
