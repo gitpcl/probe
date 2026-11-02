@@ -49,6 +49,17 @@ if (is_string($envLog) && $envLog !== '') {
     file_put_contents($envLog, ($appEnv === false ? 'unset' : $appEnv)."\n", FILE_APPEND | LOCK_EX);
 }
 
+$tokenLog = getenv('PROBE_STUB_TOKEN_LOG');
+if (is_string($tokenLog) && $tokenLog !== '') {
+    $token = getenv('TEST_TOKEN');
+    $parallel = getenv('LARAVEL_PARALLEL_TESTING');
+    file_put_contents(
+        $tokenLog,
+        'TEST_TOKEN='.($token === false ? 'unset' : $token).' LARAVEL_PARALLEL_TESTING='.($parallel === false ? 'unset' : $parallel)."\n",
+        FILE_APPEND | LOCK_EX,
+    );
+}
+
 $fileAttribute = htmlspecialchars($files[0] ?? '', ENT_QUOTES);
 $failure = $fail ? '<failure message="expected 1">expected 1</failure>' : '';
 $failures = $fail ? '1' : '0';

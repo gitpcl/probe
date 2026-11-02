@@ -50,6 +50,22 @@ final class ChildEnvironment
     }
 
     /**
+     * The variables Laravel's parallel testing keys on, so each of several shards
+     * boots its own test database ({database}_test_probe_<n>) instead of sharing
+     * phpunit.xml's. Empty for a single shard, which keeps the configured database.
+     *
+     * @return array<string, string>
+     */
+    public static function forShard(int $index, int $count): array
+    {
+        if ($count < 2) {
+            return [];
+        }
+
+        return ['TEST_TOKEN' => 'probe_'.($index + 1), 'LARAVEL_PARALLEL_TESTING' => '1'];
+    }
+
+    /**
      * The same subtraction for a forked child that keeps running PHP: drop the env file's
      * keys from the live environment and reset Laravel's Dotenv repository, whose record
      * of what it loaded would otherwise let the env file overwrite phpunit.xml values.

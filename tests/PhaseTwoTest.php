@@ -544,6 +544,78 @@ XML);
         $this->assertSame('lightpanda', $result->value['engine']);
     }
 
+    public function test_each_shard_gets_its_own_parallel_testing_token(): void
+    {
+        $root = $this->tree([
+            'tests/Feature/UserTest.php' => "<?php\nclass UserTest {}\n",
+            'tests/Feature/OrderTest.php' => "<?php\nclass OrderTest {}\n",
+        ]);
+        $log = $root.'/tokens.log';
+        putenv('PROBE_STUB_TOKEN_LOG='.$log);
+
+        try {
+            $result = $this->runner($root, 2)->run(['tests' => [$root.'/tests/Feature/UserTest.php', $root.'/tests/Feature/OrderTest.php'], 'paths' => ['tests']]);
+        } finally {
+            putenv('PROBE_STUB_TOKEN_LOG');
+        }
+
+        $this->assertSame('passed', $result->status, $result->toJson());
+        $this->assertSame(2, $result->value['shards']);
+        $this->assertSame(
+            ['TEST_TOKEN=probe_1 LARAVEL_PARALLEL_TESTING=1', 'TEST_TOKEN=probe_2 LARAVEL_PARALLEL_TESTING=1'],
+            $this->tokenLines($log),
+        );
+    }
+
+    public function test_process_mode_shards_get_their_own_token_too(): void
+    {
+        $root = $this->tree([
+            'tests/Feature/UserTest.php' => "<?php\nclass UserTest {}\n",
+            'tests/Feature/OrderTest.php' => "<?php\nclass OrderTest {}\n",
+        ]);
+        $log = $root.'/tokens.log';
+        putenv('PROBE_STUB_TOKEN_LOG='.$log);
+
+        try {
+            $result = $this->runner($root, 2, 0, 'process')->run(['tests' => [$root.'/tests/Feature/UserTest.php', $root.'/tests/Feature/OrderTest.php'], 'paths' => ['tests']]);
+        } finally {
+            putenv('PROBE_STUB_TOKEN_LOG');
+        }
+
+        $this->assertSame('passed', $result->status, $result->toJson());
+        $this->assertSame('process', $result->value['mode']);
+        $this->assertSame(
+            ['TEST_TOKEN=probe_1 LARAVEL_PARALLEL_TESTING=1', 'TEST_TOKEN=probe_2 LARAVEL_PARALLEL_TESTING=1'],
+            $this->tokenLines($log),
+        );
+    }
+
+    public function test_a_single_shard_keeps_the_configured_database(): void
+    {
+        $root = $this->tree(['tests/Feature/UserTest.php' => "<?php\nclass UserTest {}\n"]);
+        $log = $root.'/tokens.log';
+        putenv('PROBE_STUB_TOKEN_LOG='.$log);
+
+        try {
+            $result = $this->runner($root, 2)->run(['paths' => ['tests/Feature/UserTest.php']]);
+        } finally {
+            putenv('PROBE_STUB_TOKEN_LOG');
+        }
+
+        $this->assertSame('passed', $result->status, $result->toJson());
+        $this->assertSame(1, $result->value['shards']);
+        $this->assertSame(['TEST_TOKEN=unset LARAVEL_PARALLEL_TESTING=unset'], $this->tokenLines($log));
+    }
+
+    /** @return list<string> */
+    private function tokenLines(string $log): array
+    {
+        $lines = array_values(array_filter(explode("\n", (string) file_get_contents($log))));
+        sort($lines);
+
+        return $lines;
+    }
+
     private function runner(string $root, int $workers, int $fullSuiteUnderMs = 0, string $mode = 'fork', int $timeoutMs = 120000): AffectedRunner
     {
         return new AffectedRunner(

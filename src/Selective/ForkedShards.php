@@ -43,11 +43,9 @@ final class ForkedShards
         }
 
         $jobs = [];
-        foreach ($shards as $files) {
-            if ($files === []) {
-                continue;
-            }
-
+        $live = array_values(array_filter($shards, static fn (array $files): bool => $files !== []));
+        $count = count($live);
+        foreach ($live as $index => $files) {
             $junit = tempnam(sys_get_temp_dir(), 'probe-junit-');
             if ($junit === false) {
                 continue;
@@ -61,7 +59,7 @@ final class ForkedShards
             }
 
             if ($pid === 0) {
-                $this->child($binary, $files, $junit);
+                $this->child($binary, $files, $junit, ChildEnvironment::forShard($index, $count));
             }
 
             $jobs[] = ['pid' => $pid, 'junit' => $junit, 'files' => $files, 'started' => hrtime(true)];
@@ -87,11 +85,17 @@ final class ForkedShards
 
     /**
      * @param  list<string>  $files
+     * @param  array<string, string>  $environment
      */
-    private function child(string $binary, array $files, string $junit): never
+    private function child(string $binary, array $files, string $junit, array $environment): never
     {
         chdir($this->root);
         ChildEnvironment::applyInProcess();
+        foreach ($environment as $key => $value) {
+            putenv($key.'='.$value);
+            $_ENV[$key] = $value;
+            $_SERVER[$key] = $value;
+        }
         if (function_exists('pcntl_signal')) {
             pcntl_signal(SIGTERM, SIG_DFL);
             pcntl_signal(SIGINT, SIG_DFL);

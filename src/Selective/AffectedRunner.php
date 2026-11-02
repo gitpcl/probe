@@ -213,6 +213,21 @@ final class AffectedRunner implements SelectiveRunner
     }
 
     /** Configured shard count, or one per CPU capped by the file count. */
+    /**
+     * The child environment plus the parallel-testing variables of shard n of count.
+     *
+     * @return array<string, string>|null
+     */
+    private function shardEnvironment(int $index, int $count): ?array
+    {
+        $shard = ChildEnvironment::forShard($index, $count);
+        if ($shard === []) {
+            return ChildEnvironment::current();
+        }
+
+        return array_merge(ChildEnvironment::current() ?? getenv(), $shard);
+    }
+
     private function shardCount(int $files): int
     {
         return $this->workers > 0 ? $this->workers : max(1, min($files, Project::cpuCount()));
@@ -227,11 +242,9 @@ final class AffectedRunner implements SelectiveRunner
     private function executeProcesses(string $binary, array $shards): array
     {
         $jobs = [];
-        foreach ($shards as $files) {
-            if ($files === []) {
-                continue;
-            }
-
+        $live = array_values(array_filter($shards, static fn (array $files): bool => $files !== []));
+        $count = count($live);
+        foreach ($live as $index => $files) {
             $junit = tempnam(sys_get_temp_dir(), 'probe-junit-');
             if ($junit === false) {
                 $jobs[] = ['report' => ShardReport::error('could not allocate a junit file')];
@@ -244,7 +257,7 @@ final class AffectedRunner implements SelectiveRunner
                 [1 => ['file', $junit.'.out', 'w'], 2 => ['file', $junit.'.err', 'w']],
                 $pipes,
                 $this->root,
-                ChildEnvironment::current(),
+                $this->shardEnvironment($index, $count),
             );
 
             if (! is_resource($process)) {
