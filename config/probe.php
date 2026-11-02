@@ -105,12 +105,15 @@ return [
     | full_suite_under_ms runs every test when the whole suite is estimated under it; 0 keeps graph selection only.
     | mode fork runs shards as forked children of the warm worker (no PHP start, no Composer, no boot per shard);
     | process starts a runner process per shard. More than one shard sets Laravel's parallel-testing
-    | variables, so each shard gets its own <database>_test_probe_<n>.
+    | variables, so each shard gets its own <database>_test_probe_<n>. stagger_ms delays each shard's
+    | start by that much more than the previous one, so their migrate:fresh bursts do not coincide
+    | (PostgreSQL's lock table is cluster-wide); 0 starts them all at once.
     | depth is how many hops of static references (use, new, ::, type hints) a change follows through app/ and database/.
     */
     'selective' => [
         'runner' => env('PROBE_TEST_RUNNER'),
         'workers' => env('PROBE_SELECTIVE_WORKERS'),
+        'stagger_ms' => (int) env('PROBE_SELECTIVE_STAGGER_MS', 60),
         'timeout_ms' => (int) env('PROBE_SELECTIVE_TIMEOUT_MS', 120000),
         'full_suite_under_ms' => (int) env('PROBE_FULL_SUITE_UNDER_MS', 15000),
         'mode' => env('PROBE_SELECTIVE_MODE', 'fork'),

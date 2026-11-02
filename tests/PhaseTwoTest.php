@@ -627,7 +627,39 @@ XML);
         return $lines;
     }
 
-    private function runner(string $root, int $workers, int $fullSuiteUnderMs = 0, string $mode = 'fork', int $timeoutMs = 120000): AffectedRunner
+    public function test_shard_starts_are_staggered_by_the_configured_delay(): void
+    {
+        $root = $this->tree([
+            'tests/Feature/UserTest.php' => "<?php\nclass UserTest {}\n",
+            'tests/Feature/OrderTest.php' => "<?php\nclass OrderTest {}\n",
+            'tests/Feature/ItemTest.php' => "<?php\nclass ItemTest {}\n",
+        ]);
+        $tests = [$root.'/tests/Feature/UserTest.php', $root.'/tests/Feature/OrderTest.php', $root.'/tests/Feature/ItemTest.php'];
+
+        $quick = $this->runner($root, 3)->run(['tests' => $tests]);
+        $staggered = $this->runner($root, 3, staggerMs: 150)->run(['tests' => $tests]);
+
+        $this->assertSame(3, $staggered->value['shards']);
+        $this->assertGreaterThanOrEqual(300, $staggered->durationMs, 'the third shard starts two delays after the first');
+        $this->assertLessThan($staggered->durationMs, $quick->durationMs + 250, 'without a delay the same shards start together');
+    }
+
+    public function test_process_mode_staggers_shard_starts_too(): void
+    {
+        $root = $this->tree([
+            'tests/Feature/UserTest.php' => "<?php\nclass UserTest {}\n",
+            'tests/Feature/OrderTest.php' => "<?php\nclass OrderTest {}\n",
+            'tests/Feature/ItemTest.php' => "<?php\nclass ItemTest {}\n",
+        ]);
+        $tests = [$root.'/tests/Feature/UserTest.php', $root.'/tests/Feature/OrderTest.php', $root.'/tests/Feature/ItemTest.php'];
+
+        $staggered = $this->runner($root, 3, 0, 'process', staggerMs: 150)->run(['tests' => $tests]);
+
+        $this->assertSame('process', $staggered->value['mode']);
+        $this->assertGreaterThanOrEqual(300, $staggered->durationMs);
+    }
+
+    private function runner(string $root, int $workers, int $fullSuiteUnderMs = 0, string $mode = 'fork', int $timeoutMs = 120000, int $staggerMs = 0): AffectedRunner
     {
         return new AffectedRunner(
             $root,
@@ -639,6 +671,8 @@ XML);
             $timeoutMs,
             $fullSuiteUnderMs,
             $mode,
+            null,
+            $staggerMs,
         );
     }
 

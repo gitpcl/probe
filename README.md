@@ -187,6 +187,8 @@ The runner is `vendor/bin/pest` when it exists, otherwise `vendor/bin/phpunit`. 
 
 More than one shard runs with Laravel's parallel-testing variables set (`LARAVEL_PARALLEL_TESTING=1`, `TEST_TOKEN=probe_<n>`), so a suite on a real database gets one database per shard, `<database>_test_probe_<n>`, created on first use and kept, exactly as `php artisan test --parallel` does with its numeric tokens; the test connection needs the right to create databases. In-memory SQLite suites are unaffected. One shard, which is what one file or `PROBE_SELECTIVE_WORKERS=1` gives, uses the configured test database as before.
 
+Each shard's first test runs `migrate:fresh`, which on PostgreSQL drops every table in one statement and takes a lock on each table, index and sequence. PostgreSQL's lock table is cluster-wide, `max_locks_per_transaction` times `max_connections` slots (6,400 on a default install), so sixteen shards dropping a 50-table schema at the same instant exhaust it and the first test of some shards fails with `SQLSTATE[53200] out of shared memory` and the server's own hint to raise `max_locks_per_transaction`. Probe therefore starts each shard `selective.stagger_ms` (default 60, `PROBE_SELECTIVE_STAGGER_MS`) later than the previous one, which spreads the burst over about a second for sixteen shards at a cost of under a second of wall time; 0 starts them together. A larger schema or more shards may still need `max_locks_per_transaction` raised (128 or 256, a server restart applies it), the same setting `php artisan test --parallel` needs at that scale, or fewer shards through `PROBE_SELECTIVE_WORKERS`.
+
 ## Quality
 
 `mutate_check --file=app/Support/Money.php` applies a few one-token flips (`+`/`-`, comparisons, `true`/`false`) and reruns the affected tests. The original file is restored afterwards, including on shutdown. A survivor is a normal failure: `survived + to - at app/Support/Money.php:12`. If the tests already fail, or none cover the file, the tool returns an error instead of a fake score. Default limit is 8.
@@ -347,6 +349,7 @@ Published to `config/probe.php`.
 | `selective.full_suite_under_ms` | 15000 | Run the whole suite when it is estimated under this; `PROBE_FULL_SUITE_UNDER_MS`, 0 keeps graph selection |
 | `selective.mode` | `fork` | Shards as forked worker children, or `process` for one runner process per shard; `PROBE_SELECTIVE_MODE` |
 | `selective.depth` | `4` | Hops of static references a change follows to find impacted classes; `PROBE_SELECTIVE_DEPTH`, 0 for one hop |
+| `selective.stagger_ms` | `60` | Delay between consecutive shard starts so their `migrate:fresh` bursts do not coincide; `PROBE_SELECTIVE_STAGGER_MS`, 0 starts all at once |
 | `mutate.limit` | `8` | Operator flips per `mutate_check` |
 | `property.cases` | `20` | Generated cases per property |
 | `architecture.rules` | `[]` | `path` plus `forbid_use` list |

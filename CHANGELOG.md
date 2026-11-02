@@ -4,6 +4,10 @@ Notable changes to this package. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Added
+
+- `selective.stagger_ms` (`PROBE_SELECTIVE_STAGGER_MS`, default 60): each shard starts that much later than the previous one. Sixteen shards running `migrate:fresh` at the same instant exhausted PostgreSQL's cluster-wide lock table (`SQLSTATE[53200] out of shared memory`) on 3 of 6 runs of a 952-test suite; spreading the starts over about a second avoids it. 0 restores simultaneous starts.
+
 ### Fixed
 
 - The compact failure line no longer spends its 180 characters on the `(Connection: ..., SQL: ...)` tail Laravel appends to a query exception, so the database's own error and hint stay visible; `get_failures` keeps the full text.

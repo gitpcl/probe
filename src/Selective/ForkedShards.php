@@ -23,6 +23,7 @@ final class ForkedShards
         private readonly string $root,
         private readonly int $timeoutMs,
         ?callable $beforeFork = null,
+        private readonly int $staggerMs = 0,
     ) {
         $this->beforeFork = $beforeFork;
     }
@@ -59,7 +60,7 @@ final class ForkedShards
             }
 
             if ($pid === 0) {
-                $this->child($binary, $files, $junit, ChildEnvironment::forShard($index, $count));
+                $this->child($binary, $files, $junit, ChildEnvironment::forShard($index, $count), $index * $this->staggerMs);
             }
 
             $jobs[] = ['pid' => $pid, 'junit' => $junit, 'files' => $files, 'started' => hrtime(true)];
@@ -87,7 +88,7 @@ final class ForkedShards
      * @param  list<string>  $files
      * @param  array<string, string>  $environment
      */
-    private function child(string $binary, array $files, string $junit, array $environment): never
+    private function child(string $binary, array $files, string $junit, array $environment, int $delayMs): never
     {
         chdir($this->root);
         ChildEnvironment::applyInProcess();
@@ -95,6 +96,13 @@ final class ForkedShards
             putenv($key.'='.$value);
             $_ENV[$key] = $value;
             $_SERVER[$key] = $value;
+        }
+
+        // Shards that boot together also run migrate:fresh together, and on PostgreSQL
+        // sixteen simultaneous drop-everything statements exhaust the cluster-wide lock
+        // table. A small delay per shard spreads that burst out; the parent forks at full speed.
+        if ($delayMs > 0) {
+            usleep($delayMs * 1000);
         }
         if (function_exists('pcntl_signal')) {
             pcntl_signal(SIGTERM, SIG_DFL);

@@ -32,6 +32,7 @@ final class AffectedRunner implements SelectiveRunner
         private readonly int $fullSuiteUnderMs = 0,
         private readonly string $mode = 'fork',
         private readonly ?Closure $beforeFork = null,
+        private readonly int $staggerMs = 0,
     ) {}
 
     /** @param  list<string>  $paths */
@@ -134,7 +135,7 @@ final class AffectedRunner implements SelectiveRunner
         $shards = $this->planner->plan($files, $this->durations->all(), $this->shardCount(count($files)));
         $forked = $this->mode !== 'process' && ForkedShards::available();
         $reports = $forked
-            ? (new ForkedShards($this->root, $this->timeoutMs, $this->beforeFork))->run($binary, $shards)
+            ? (new ForkedShards($this->root, $this->timeoutMs, $this->beforeFork, $this->staggerMs))->run($binary, $shards)
             : $this->executeProcesses($binary, $shards);
 
         return $this->merge($reports, $started, $files, $selection, $forked ? 'fork' : 'process');
@@ -245,6 +246,10 @@ final class AffectedRunner implements SelectiveRunner
         $live = array_values(array_filter($shards, static fn (array $files): bool => $files !== []));
         $count = count($live);
         foreach ($live as $index => $files) {
+            if ($index > 0 && $this->staggerMs > 0) {
+                usleep($this->staggerMs * 1000);
+            }
+
             $junit = tempnam(sys_get_temp_dir(), 'probe-junit-');
             if ($junit === false) {
                 $jobs[] = ['report' => ShardReport::error('could not allocate a junit file')];

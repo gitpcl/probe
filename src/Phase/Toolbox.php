@@ -72,6 +72,7 @@ final class Toolbox
             (int) ($config['selective']['full_suite_under_ms'] ?? 15000),
             (string) ($config['selective']['mode'] ?? 'fork'),
             $database === null ? null : static fn () => $database->releaseConnections(),
+            max(0, (int) ($config['selective']['stagger_ms'] ?? 60)),
         );
         $this->browser = new HybridBrowser($config, $root);
         $this->mutation = new MutationCheck(
