@@ -44,6 +44,17 @@ final class ForkedRunTest extends TestCase
         $this->assertSame('exit', $result->failures[0]->id);
     }
 
+    public function test_an_exit_inside_the_probe_is_reported_as_such(): void
+    {
+        $result = (new ForkedRun)->run(function (): ProbeResult {
+            exit(3);
+        }, 2000);
+
+        $this->assertSame('failed', $result->status);
+        $this->assertSame('exit', $result->failures[0]->id);
+        $this->assertSame('probe called exit() or die()', $result->failures[0]->message);
+    }
+
     public function test_a_hung_child_is_killed_at_the_timeout(): void
     {
         $started = hrtime(true);

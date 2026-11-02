@@ -79,6 +79,23 @@ final class ForkedRun
             pcntl_signal(SIGINT, SIG_DFL);
         }
 
+        // exit() or a fatal error inside the probe never reaches the write below, but a
+        // shutdown function still runs then and reports what ended the probe. The normal
+        // path ends in SIGKILL, which runs no shutdown function, so no guard is needed.
+        register_shutdown_function(static function () use ($socket): void {
+            $last = error_get_last();
+            $fatal = $last !== null && in_array($last['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true);
+            $message = $fatal
+                ? 'fatal error: '.$last['message'].' at '.$last['file'].':'.$last['line']
+                : 'probe called exit() or die()';
+
+            try {
+                Protocol::write($socket, ProbeResult::failed(0, new Failure(id: 'exit', message: $message))->toArray(true));
+            } catch (Throwable) {
+                // The parent stopped waiting; there is nobody to report to.
+            }
+        });
+
         try {
             $payload = $body()->toArray(true);
         } catch (Throwable $exception) {
@@ -120,7 +137,7 @@ final class ForkedRun
 
             return ProbeResult::failed(Stats::elapsedMs($started), new Failure(
                 id: 'exit',
-                message: 'probe process ended before returning a result (exit or fatal error); see the worker log',
+                message: 'probe process ended before returning a result (killed, or a fatal error it could not report)',
             ));
         }
 
