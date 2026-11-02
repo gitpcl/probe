@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Probe\Tests;
 
 use PHPUnit\Framework\TestCase;
+use Probe\Console\Argv;
+use Probe\Console\Dispatcher;
 use Probe\Probe;
 use Probe\Project;
 use Probe\Support\Stats;
@@ -27,6 +29,31 @@ final class WorkerPoolTest extends TestCase
     {
         $this->pool->stop($this->root);
         parent::tearDown();
+    }
+
+    public function test_cold_status_reports_a_freshly_booted_worker(): void
+    {
+        $this->pool->ensure($this->root);
+        $first = $this->pool->status($this->root)['workers'][0]['pid'];
+
+        $output = '';
+        $cwd = (string) getcwd();
+        chdir($this->root);
+        try {
+            $exit = (new Dispatcher($this->pool))->run(
+                Argv::parse(['probe', '--cold', '--status']),
+                static function (string $json) use (&$output): void {
+                    $output .= $json;
+                },
+            );
+        } finally {
+            chdir($cwd);
+        }
+
+        $status = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(0, $exit);
+        $this->assertSame('running', $status['status']);
+        $this->assertNotSame($first, $status['workers'][0]['pid'], '--cold restarts the worker before --status reports it');
     }
 
     public function test_warm_worker_returns_compact_json_under_the_latency_target(): void

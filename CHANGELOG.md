@@ -2,6 +2,12 @@
 
 Notable changes to this package. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/). Before 1.0, a minor bump may change tool output or defaults.
 
+## [Unreleased]
+
+### Fixed
+
+- `--cold --status` stops the worker, boots a fresh one and reports that one. Status was answered before the cold flag was read, so the old worker's version and pid came back and the restart never happened.
+
 ## [0.9.1] - 2026-11-01
 
 ### Added

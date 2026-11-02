@@ -76,6 +76,10 @@ final class Dispatcher
         }
 
         if ($invocation->status || $invocation->tool === 'status') {
+            if ($invocation->cold) {
+                $this->pool->ensure($root, cold: true);
+            }
+
             $this->emit($this->pool->status($root));
 
             return 0;
