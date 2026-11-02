@@ -2,6 +2,20 @@
 
 Notable changes to this package. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/). Before 1.0, a minor bump may change tool output or defaults.
 
+## [Unreleased]
+
+### Fixed
+
+- `run_affected` shards no longer share one test database. More than one shard runs with Laravel's parallel-testing variables, so each shard gets `<database>_test_probe_<n>`, as `php artisan test --parallel` does. On a PostgreSQL suite of 952 tests, 893 false failures came from shards running `migrate:fresh` over each other.
+- A probe that calls `exit()` or dies on a fatal error now reports that, instead of pointing at a worker log that does not exist.
+- A failure trace stops at the snippet boundary; the worker's own frames below it are no longer listed.
+- `--tool=status`, `--tool=cold` and `--tool=stop` work on the CLI, matching the MCP tool names.
+- `run_affected` with a `tests` list no longer demands `paths` or a git diff as well.
+
+### Added
+
+- `--tests=a.php,b.php` on the CLI for `run_affected` and `mutate_check`, matching the MCP `tests` argument.
+
 ## [0.8.2] - 2026-11-01
 
 ### Changed

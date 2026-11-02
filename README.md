@@ -88,7 +88,7 @@ Passing output is a single JSON object. The green form is about a dozen tokens, 
 | `rerun` | `false` when `rerun_failed` had nothing to run |
 | `failures_total` | Present when the list was cut at `max_failures` (default 20); every row stays reachable through `get_failures --id=N` |
 
-`get_failures` returns the first failure of the last result in full (`type`, `file`, `line`, `trace`) plus `value.total`; `--id=N` opens another one. Traces leave out Probe's own frames. That is the progressive-detail hook. The compact probe path does not include the trace.
+`get_failures` returns the first failure of the last result in full (`type`, `file`, `line`, `trace`) plus `value.total`; `--id=N` opens another one. Traces hold the application frames the snippet reached and stop at Probe's own; a throw at the snippet's top level has none, so `trace` is left out there. That is the progressive-detail hook. The compact probe path does not include the trace.
 
 ## Tools
 
@@ -128,7 +128,7 @@ Response:
 
 State lives in `storage/framework/probe/` (`active.json`, `session.json`, the socket). Override the location with `PROBE_HOME` and `PROBE_SOCKET` in `.env` so the thin client and Artisan agree. The supervisor lock stops two clients from booting two workers.
 
-The pool size is `PROBE_WORKERS` (default 1). Agent tools enter through worker 0 so the last result stays in one `session.json`: `PROBE_WORKERS` does not parallelize plain probes, it sets the number of PHPUnit shards for `run_affected`. `Probe\Selective\ShardPlanner` packs files by the durations in `durations.json` (longest first). With one worker, or one file, there is a single shard. The supervisor restarts a worker that dies, and recycles it after `recycle_after` probes (default 500).
+The pool size is `PROBE_WORKERS` (default 1). Agent tools enter through worker 0 so the last result stays in one `session.json`: `PROBE_WORKERS` does not parallelize plain probes; the shard count for `run_affected` is `PROBE_SELECTIVE_WORKERS` (default one per CPU, capped by the file count, see Affected tests). `Probe\Selective\ShardPlanner` packs files by the durations in `durations.json` (longest first). With `PROBE_SELECTIVE_WORKERS=1`, or one file, there is a single shard. The supervisor restarts a worker that dies, and recycles it after `recycle_after` probes (default 500).
 
 Each probe runs in a forked child of the worker (`fork`, `PROBE_FORK=false` to disable). Config changes, faked facades, `Carbon::setTestNow`, a logged-in user, a fatal error or an `exit()` die with the child, and the worker keeps the state it booted with. Without `pcntl` and `posix` probes run inside the worker; `--status` and the ping then say `isolation: process` with a notice.
 
@@ -184,6 +184,8 @@ Every result says what ran: `duration_ms` is wall time and `value.shard_ms` the 
 Empty `--paths` uses `git diff --name-only HEAD` plus untracked files. No paths and no diff is an error. No matching tests is a pass with `value.ran` of 0.
 
 The runner is `vendor/bin/pest` when it exists, otherwise `vendor/bin/phpunit`. Override it with `PROBE_TEST_RUNNER`. Output is read from JUnit, not from the decorated terminal. Shards run as forked children of the warm worker (`selective.mode` `fork`, the default where `pcntl` exists): a child inherits Composer, the compiled framework and OPcache, drops the worker's `.env` values, and includes the runner in-process with `--no-output`, so no shard pays PHP startup, Composer or a boot. `PROBE_SELECTIVE_MODE=process` starts one runner process per shard instead. `PROBE_SELECTIVE_WORKERS` sets the shard count; the default is one per CPU, capped by the file count. `value.mode` says which ran.
+
+More than one shard runs with Laravel's parallel-testing variables set (`LARAVEL_PARALLEL_TESTING=1`, `TEST_TOKEN=probe_<n>`), so a suite on a real database gets one database per shard, `<database>_test_probe_<n>`, created on first use and kept, exactly as `php artisan test --parallel` does with its numeric tokens; the test connection needs the right to create databases. In-memory SQLite suites are unaffected. One shard, which is what one file or `PROBE_SELECTIVE_WORKERS=1` gives, uses the configured test database as before.
 
 ## Quality
 

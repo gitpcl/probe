@@ -80,9 +80,12 @@ return [
     'opcache' => filter_var(env('PROBE_OPCACHE', true), FILTER_VALIDATE_BOOL),
 
     /*
-    | Browser probes. auto prefers Lightpanda, then Playwright.
-    | Interaction steps always use Playwright. Point lightpanda or playwright
-    | at an absolute path to override the PATH lookup.
+    | Browser probes. auto uses the Playwright npm package installed in the app
+    | (npm install -D playwright, resolved from the project root) when node is
+    | available, else Lightpanda on PATH, else the one-shot Playwright script.
+    | Interaction steps always use Playwright. A global playwright CLI does not
+    | stand in for the package. lightpanda, playwright and node are looked up
+    | on PATH unless given as absolute paths.
     */
     'browser' => [
         'engine' => env('PROBE_BROWSER', 'auto'),
@@ -98,10 +101,11 @@ return [
 
     /*
     | run_affected. runner is an optional Pest or PHPUnit binary.
-    | workers null follows the warm pool size and is the shard count.
+    | workers is the shard count; null is one shard per CPU, capped by the file count.
     | full_suite_under_ms runs every test when the whole suite is estimated under it; 0 keeps graph selection only.
     | mode fork runs shards as forked children of the warm worker (no PHP start, no Composer, no boot per shard);
-    | process starts a runner process per shard. workers null is one shard per CPU, capped by the file count.
+    | process starts a runner process per shard. More than one shard sets Laravel's parallel-testing
+    | variables, so each shard gets its own <database>_test_probe_<n>.
     | depth is how many hops of static references (use, new, ::, type hints) a change follows through app/ and database/.
     */
     'selective' => [
