@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Probe\Console;
 
+use ErrorException;
 use Probe\Probe;
 use Probe\Project;
 use Probe\Worker\Pool;
@@ -55,33 +56,76 @@ final class McpServer
 
     public static function main(): int
     {
-        return (new self)->serve(STDIN, STDOUT);
+        register_shutdown_function(static function (): void {
+            $last = error_get_last();
+            if ($last !== null && in_array($last['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+                fwrite(STDERR, 'probe-mcp: fatal error: '.$last['message'].' at '.$last['file'].':'.$last['line']."\n");
+            }
+        });
+
+        try {
+            return (new self)->serve(STDIN, STDOUT, STDERR);
+        } catch (Throwable $exception) {
+            fwrite(STDERR, 'probe-mcp: '.$exception::class.': '.$exception->getMessage()."\n");
+
+            return 1;
+        }
     }
 
     /**
+     * Serves until stdin closes. Every PHP warning or notice raised meanwhile is
+     * answered as a JSON-RPC error instead of printed, and the exit is logged on
+     * $log (stderr), so a client that reports a disconnect leaves a trace of why.
+     *
      * @param  resource  $in
      * @param  resource  $out
+     * @param  resource|null  $log
      */
-    public function serve($in, $out): int
+    public function serve($in, $out, $log = null): int
     {
-        while (($line = fgets($in)) !== false) {
-            $line = trim($line);
-            if ($line === '') {
-                continue;
+        set_error_handler([self::class, 'errorToException']);
+        $messages = 0;
+
+        try {
+            while (($line = fgets($in)) !== false) {
+                $line = trim($line);
+                if ($line === '') {
+                    continue;
+                }
+
+                $messages++;
+                $message = json_decode($line, true);
+                $response = is_array($message)
+                    ? $this->handle($message)
+                    : $this->error(null, self::INVALID_REQUEST, 'invalid JSON');
+
+                if ($response !== null) {
+                    fwrite($out, json_encode($response, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n");
+                    fflush($out);
+                }
             }
-
-            $message = json_decode($line, true);
-            $response = is_array($message)
-                ? $this->handle($message)
-                : $this->error(null, self::INVALID_REQUEST, 'invalid JSON');
-
-            if ($response !== null) {
-                fwrite($out, json_encode($response, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n");
-                fflush($out);
+        } finally {
+            restore_error_handler();
+            if ($log !== null) {
+                fwrite($log, 'probe-mcp: stdin closed after '.$messages.' messages, exiting'."\n");
             }
         }
 
         return 0;
+    }
+
+    /**
+     * A warning or notice becomes an exception, which handle() answers as a
+     * JSON-RPC internal error. Printed, it would land in the stream. An error the
+     * reporting level excludes (an @-suppressed call) is left to PHP.
+     */
+    public static function errorToException(int $severity, string $message, string $file, int $line): bool
+    {
+        if ((error_reporting() & $severity) === 0) {
+            return false;
+        }
+
+        throw new ErrorException($message, 0, $severity, $file, $line);
     }
 
     /**

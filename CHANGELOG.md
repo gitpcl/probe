@@ -2,6 +2,12 @@
 
 Notable changes to this package. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/). Before 1.0, a minor bump may change tool output or defaults.
 
+## [Unreleased]
+
+### Changed
+
+- `probe-mcp` and the CLI client send PHP's own warnings and fatal errors to stderr, never to stdout, so a stray message cannot corrupt the JSON-RPC stream or the one-object CLI result. A warning raised while the MCP server handles a request is answered as a JSON-RPC internal error. The server writes one stderr line when it exits (`stdin closed after N messages`, or the fatal), so a client that reports a disconnect leaves a trace of why.
+
 ## [0.9.0] - 2026-11-01
 
 ### Fixed

@@ -3,6 +3,10 @@
 
 declare(strict_types=1);
 
+// Everything on stdout is JSON-RPC. PHP's own warnings and fatals go to stderr,
+// where the client logs them, instead of corrupting the stream.
+ini_set('display_errors', 'stderr');
+
 // MCP server over stdio. Same thin autoloader as the CLI client: Probe's classes only.
 spl_autoload_register(static function (string $class): void {
     if (! str_starts_with($class, 'Probe\\')) {

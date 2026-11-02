@@ -3,6 +3,9 @@
 
 declare(strict_types=1);
 
+// stdout is one JSON object for the agent; PHP's own messages go to stderr.
+ini_set('display_errors', 'stderr');
+
 use Probe\Console\Dispatcher;
 
 // The thin client loads Probe's own classes and nothing else. The application's

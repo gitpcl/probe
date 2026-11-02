@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Probe\Tests;
 
+use ErrorException;
 use PHPUnit\Framework\TestCase;
 use Probe\Console\McpServer;
 use Probe\Probe;
@@ -89,6 +90,7 @@ final class McpServerTest extends TestCase
         fclose($pipes[0]);
 
         $output = stream_get_contents($pipes[1]);
+        $log = stream_get_contents($pipes[2]);
         fclose($pipes[1]);
         fclose($pipes[2]);
         proc_close($process);
@@ -97,5 +99,25 @@ final class McpServerTest extends TestCase
         $this->assertCount(2, $responses, (string) $output);
         $this->assertSame(1, json_decode($responses[0], true)['id']);
         $this->assertStringContainsString('"value":5', json_decode($responses[1], true)['result']['content'][0]['text']);
+        $this->assertStringContainsString('probe-mcp: stdin closed after 3 messages, exiting', (string) $log, 'the exit reason is logged on stderr');
+    }
+
+    public function test_a_php_warning_while_serving_becomes_an_exception_not_output(): void
+    {
+        $previous = error_reporting(E_ALL);
+
+        try {
+            $this->assertFalse(@McpServer::errorToException(E_WARNING, 'suppressed', __FILE__, __LINE__), 'an @-suppressed warning is left to PHP');
+
+            try {
+                McpServer::errorToException(E_WARNING, 'stray warning', __FILE__, __LINE__);
+                $this->fail('a warning within the reporting level must become an exception');
+            } catch (ErrorException $exception) {
+                $this->assertSame('stray warning', $exception->getMessage());
+                $this->assertSame(E_WARNING, $exception->getSeverity());
+            }
+        } finally {
+            error_reporting($previous);
+        }
     }
 }
