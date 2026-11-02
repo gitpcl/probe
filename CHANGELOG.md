@@ -2,6 +2,12 @@
 
 Notable changes to this package. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/). Before 1.0, a minor bump may change tool output or defaults.
 
+## [Unreleased]
+
+### Changed
+
+- A `no such table` probe failure on a worker whose boot migration failed now starts with `boot migration failed (set PROBE_DATABASE=host or fix the migration)` and carries the boot error, instead of a bare SQL error that only `--status` explained.
+
 ## [0.8.1] - 2026-11-01
 
 First public release.

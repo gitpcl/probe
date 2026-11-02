@@ -152,6 +152,8 @@ Named connections configured by the host app stay available. A snippet that call
 
 Set `PROBE_DATABASE=host` to keep the application's default connection.
 
+Migrations run on that SQLite connection at boot, and SQLite cannot run everything MySQL or PostgreSQL can: adding a primary key column to an existing table, a non-constant column default, some `alter table` forms. The run stops at the first such migration, `--status` reports it as `migrate_error`, and a probe that touches a table from after that point fails with `no such table` prefixed by `boot migration failed (set PROBE_DATABASE=host or fix the migration)`; `get_failures` carries the boot error in full. Set `PROBE_DATABASE=host` then, so probes run on the application's connection inside a transaction that is rolled back, or make the migration SQLite-safe.
+
 `probe.prepare` is optional PHP run once at worker boot, after migrations and outside the per-probe transaction. Use it to create tables that should survive for the life of the worker.
 
 On the SQLite used here, `Schema::create` inside a probe rolls back with the transaction, so the next probe does not see that table. Put durable schema in `probe.prepare` or in migrations. Some DDL statements commit immediately on other SQLite builds, so do not rely on either outcome from inside a probe.

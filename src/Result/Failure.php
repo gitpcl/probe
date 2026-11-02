@@ -60,6 +60,19 @@ final class Failure
         );
     }
 
+    /** The same failure with another message: type, file, line and trace stay. */
+    public function withMessage(string $message): self
+    {
+        return new self(
+            id: $this->id,
+            message: $message,
+            type: $this->type,
+            file: $this->file,
+            line: $this->line,
+            trace: $this->trace,
+        );
+    }
+
     /** @return array{id: string, message: string} */
     public function compact(): array
     {

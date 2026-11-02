@@ -6,6 +6,7 @@ namespace Probe\Runner;
 
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Contracts\Foundation\Application;
+use Probe\Result\Failure;
 use Throwable;
 
 /**
@@ -87,6 +88,23 @@ final class DatabaseGuard
     public function migrateError(): ?string
     {
         return $this->migrateError;
+    }
+
+    /**
+     * A missing table after the boot migration failed is a symptom of that
+     * failure, so the probe's failure says so and names the setting that
+     * avoids it. Any other failure, and any worker that migrated, pass through.
+     */
+    public function annotate(Failure $failure): Failure
+    {
+        if ($this->migrateError === null || ! str_contains($failure->message, 'no such table')) {
+            return $failure;
+        }
+
+        return $failure->withMessage(
+            'boot migration failed (set PROBE_DATABASE=host or fix the migration): '
+            .$failure->message.' Boot error: '.$this->migrateError
+        );
     }
 
     public function isolate(callable $callback): mixed

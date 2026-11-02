@@ -46,4 +46,37 @@ final class DatabaseGuardTest extends TestCase
         $this->assertSame('host', $guard->boot($this->app));
         $this->assertSame('sqlite', config('database.default'));
     }
+
+    public function test_missing_table_failure_points_at_the_boot_migration_error(): void
+    {
+        config(['probe.migrate' => true]);
+        $this->app->make('migrator')->path(__DIR__.'/Fixtures/migrations-broken');
+        $guard = new DatabaseGuard;
+        $guard->boot($this->app);
+
+        $this->assertStringContainsString('Cannot add a PRIMARY KEY column', (string) $guard->migrateError());
+
+        $runner = new SnippetRunner($guard, 1024, 5000);
+        $result = $runner->run('return DB::table("missing")->count();');
+
+        $this->assertFalse($result->ok());
+        $message = $result->failures[0]->message;
+        $this->assertStringStartsWith('boot migration failed (set PROBE_DATABASE=host', $message);
+        $this->assertStringContainsString('no such table: missing', $message);
+        $this->assertStringContainsString('Cannot add a PRIMARY KEY column', $message);
+    }
+
+    public function test_missing_table_failure_is_unchanged_without_a_boot_error(): void
+    {
+        $guard = new DatabaseGuard;
+        $guard->boot($this->app);
+
+        $runner = new SnippetRunner($guard, 1024, 5000);
+        $result = $runner->run('return DB::table("missing")->count();');
+
+        $this->assertFalse($result->ok());
+        $message = $result->failures[0]->message;
+        $this->assertStringStartsWith('SQLSTATE', $message);
+        $this->assertStringNotContainsString('boot migration failed', $message);
+    }
 }

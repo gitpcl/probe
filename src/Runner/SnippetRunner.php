@@ -58,7 +58,7 @@ final class SnippetRunner
         } catch (Throwable $exception) {
             return ProbeResult::failed(
                 Stats::elapsedMs($started),
-                Failure::fromThrowable($exception),
+                $this->database->annotate(Failure::fromThrowable($exception)),
             );
         } finally {
             $this->disarmTimeout();
