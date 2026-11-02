@@ -39,6 +39,7 @@ final class Argv
         $project = null;
         $spec = null;
         $routes = null;
+        $tests = null;
         $auth = null;
         $error = null;
         $positionals = [];
@@ -177,6 +178,9 @@ final class Argv
                 case '--routes':
                     $routes = $value;
                     break;
+                case '--tests':
+                    $tests = $value;
+                    break;
                 case '--auth':
                     $auth = $value;
                     break;
@@ -216,6 +220,7 @@ final class Argv
             project: $project,
             spec: $spec,
             routes: $routes,
+            tests: $tests,
             auth: $auth,
             error: $error,
         );

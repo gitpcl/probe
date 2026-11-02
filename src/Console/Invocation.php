@@ -36,6 +36,7 @@ final class Invocation
         public readonly ?string $project = null,
         public readonly ?string $spec = null,
         public readonly ?string $routes = null,
+        public readonly ?string $tests = null,
         public readonly ?string $auth = null,
         public readonly ?string $error = null,
     ) {}

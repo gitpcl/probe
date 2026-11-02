@@ -63,7 +63,7 @@ final class Dispatcher
             return $this->emitError('project', $exception->getMessage());
         }
 
-        if ($invocation->stop) {
+        if ($invocation->stop || $invocation->tool === 'stop') {
             $this->pool->stop($root);
             $this->emit([
                 'status' => 'passed',
@@ -75,8 +75,15 @@ final class Dispatcher
             return 0;
         }
 
-        if ($invocation->status) {
+        if ($invocation->status || $invocation->tool === 'status') {
             $this->emit($this->pool->status($root));
+
+            return 0;
+        }
+
+        if ($invocation->tool === 'cold' && $invocation->code === null) {
+            $this->pool->stop($root);
+            $this->emit(['status' => 'passed', 'duration_ms' => 0, 'failures' => [], 'recycled' => true]);
 
             return 0;
         }
@@ -131,6 +138,13 @@ final class Dispatcher
                 $request['paths'] = array_values(array_filter(
                     array_map('trim', explode(',', $invocation->paths)),
                     static fn (string $path): bool => $path !== '',
+                ));
+            }
+
+            if ($invocation->tests !== null && $invocation->tests !== '') {
+                $request['tests'] = array_values(array_filter(
+                    array_map('trim', explode(',', $invocation->tests)),
+                    static fn (string $test): bool => $test !== '',
                 ));
             }
 
@@ -331,6 +345,7 @@ Usage:
   vendor/bin/probe --tool=get_failures --id=1
   vendor/bin/probe --tool=rerun_failed
   vendor/bin/probe --tool=run_affected --paths=app/Models/User.php
+  vendor/bin/probe --tool=run_affected --tests=tests/Feature/UserTest.php
   vendor/bin/probe --tool=probe_browser --url=http://127.0.0.1:8000 --contains=Laravel
   vendor/bin/probe --tool=mutate_check --file=app/Models/User.php --limit=8
   vendor/bin/probe --tool=property_check --property=addition_commutative --cases=20
@@ -340,7 +355,7 @@ Usage:
   vendor/bin/probe --tool=static_check --paths=app/Models/User.php
   vendor/bin/probe --tool=type_check
   vendor/bin/probe --tool=contract_check --routes='GET /api/users/{id}'
-  vendor/bin/probe --status
+  vendor/bin/probe --status            (also --tool=status, --tool=cold, --tool=stop)
   vendor/bin/probe --stop
   vendor/bin/probe --cold 'return 1;'
   vendor/bin/probe --benchmark

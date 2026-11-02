@@ -18,6 +18,14 @@ final class ArgvTest extends TestCase
         $this->assertFalse($invocation->cold);
     }
 
+    public function test_tests_option_parses_like_paths(): void
+    {
+        $invocation = Argv::parse(['probe', '--tool=run_affected', '--tests=tests/Feature/ATest.php,tests/Feature/BTest.php']);
+
+        $this->assertSame('run_affected', $invocation->tool);
+        $this->assertSame('tests/Feature/ATest.php,tests/Feature/BTest.php', $invocation->tests);
+    }
+
     public function test_flags_parse_with_equals_and_separated_values(): void
     {
         $invocation = Argv::parse([
