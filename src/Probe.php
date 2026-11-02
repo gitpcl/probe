@@ -13,7 +13,7 @@ use Probe\Worker\Pool;
  */
 final class Probe
 {
-    public const VERSION = '0.9.1';
+    public const VERSION = '0.9.2';
 
     public const WARM_TARGET_MS = 150;
 
