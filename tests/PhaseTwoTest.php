@@ -544,6 +544,17 @@ XML);
         $this->assertSame('lightpanda', $result->value['engine']);
     }
 
+    public function test_a_given_tests_list_needs_no_paths(): void
+    {
+        $root = $this->tree(['tests/Feature/UserTest.php' => "<?php\nclass UserTest {}\n"]);
+
+        $result = $this->runner($root, 1)->run(['tests' => ['tests/Feature/UserTest.php']]);
+
+        $this->assertSame('passed', $result->status, $result->toJson());
+        $this->assertSame('given', $result->value['selection']);
+        $this->assertSame(1, $result->value['ran']);
+    }
+
     public function test_each_shard_gets_its_own_parallel_testing_token(): void
     {
         $root = $this->tree([

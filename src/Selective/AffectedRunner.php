@@ -44,16 +44,16 @@ final class AffectedRunner implements SelectiveRunner
     public function run(array $request): ProbeResult
     {
         $started = hrtime(true);
-        $paths = $this->paths($request);
-
-        if ($paths === [] && ($request['paths'] ?? null) === null) {
-            return ProbeResult::error('paths', 'run_affected needs paths or a git diff');
-        }
 
         $selection = 'given';
         if (isset($request['tests']) && is_array($request['tests'])) {
             $tests = $this->existing($request['tests']);
         } else {
+            $paths = $this->paths($request);
+            if ($paths === [] && ($request['paths'] ?? null) === null) {
+                return ProbeResult::error('paths', 'run_affected needs paths or a git diff');
+            }
+
             ['files' => $tests, 'selection' => $selection] = $this->select($paths);
         }
 
