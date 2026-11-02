@@ -4,7 +4,7 @@ Agent-first testing runtime for Laravel. A warm PHP worker answers throwaway pro
 
 Pest and PHPUnit stay the suite runners. Probe sits beside them for the agent loop: run a check, read a tiny result, repeat.
 
-The design proposal is in [DESIGN.md](DESIGN.md). Phases 1 to 5 are implemented here.
+The design proposal is in [DESIGN.md](DESIGN.md). Phases 1 to 6 are implemented here.
 
 ## Install
 
